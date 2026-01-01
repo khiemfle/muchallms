@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Muchallms Control</title>
+    <link rel="stylesheet" href="control.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="panel__header">
+        <div>
+          <p class="panel__title" id="header-conversation" title=""></p>
+        </div>
+        <div class="header__actions">
+          <button class="ghost icon-button" id="new-chat" type="button" title="New chat">
+            <svg class="icon-svg" viewBox="0 0 512 512" aria-hidden="true">
+              <path d="M0 64C0 28.7 28.7 0 64 0H256c17.7 0 32 14.3 32 32s-14.3 32-32 32H64V448H384V256c0-17.7 14.3-32 32-32s32 14.3 32 32V448c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V64zM475.6 80.4c9.4 9.4 9.4 24.6 0 33.9l-40 40-33.9-33.9 40-40c9.4-9.4 24.6-9.4 33.9 0zM387.8 118.2l33.9 33.9L247.8 326.1 201 337.8c-8.7 2.2-17.6-5.7-15.4-14.4l11.7-46.8 190.5-190.5z"/>
+            </svg>
+          </button>
+          <details class="menu" id="header-menu">
+            <summary class="menu__button" aria-label="Header actions">...</summary>
+            <div class="menu__panel">
+              <button class="menu__item" id="open-settings" type="button">Settings</button>
+              <button class="menu__item" id="open-history" type="button">History</button>
+              <button class="menu__item" id="open-privacy" type="button">Privacy policy</button>
+              <button class="menu__item" id="open-faq" type="button">FAQ</button>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <div class="panel__content">
+      <div class="tab-panel" data-panel="conversation">
+        <section class="section" id="conversation-section">
+          <div class="conversation" id="conversation-detail">
+            <div class="section__header">
+            <div>
+                <p class="conversation__meta" id="conversation-updated"></p>
+            </div>
+            <div></div>
+            </div>
+            <div id="messages-container">
+              <p class="conversation__label">Messages</p>
+              <ul class="conversation__list" id="conversation-messages"></ul>
+            </div>
+            <div id="llm-status-container" class="llm-status-container is-hidden">
+              <p class="conversation__label">LLM Windows</p>
+              <ul class="status" id="llm-status-list"></ul>
+              <div class="llm-status-action">
+                <button class="accent" id="open-missing-llms-button" type="button">Open LLMs</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section empty-state is-hidden" id="empty-state-section">
+          <div class="empty-state__content">
+            <p class="empty-state__text">No LLM windows open yet</p>
+            <button class="accent" id="open-llms-button" type="button">Open LLMs</button>
+          </div>
+        </section>
+
+        <section class="section prompt-dock">
+          <div class="prompt-input">
+            <textarea id="prompt" rows="4" placeholder="Paste or type your prompt"></textarea>
+            <div class="prompt-actions">
+              <details class="menu menu--up" id="llm-menu">
+                <summary class="llm-dropdown-button" aria-label="LLM status">
+                  <span id="llm-count-label">0 LLMs</span>
+                  <svg class="dropdown-arrow" viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M2 8l4-4 4 4"/>
+                  </svg>
+                </summary>
+                <div class="menu__panel llm-menu-panel">
+                  <div class="llm-menu-status">
+                    <p class="llm-menu-title">LLM Status</p>
+                    <ul class="llm-menu-list" id="llm-menu-status-list"></ul>
+                  </div>
+                  <div class="llm-menu-actions">
+                    <button class="menu__item" id="open-llms-menu-button" type="button">Open LLMs</button>
+                    <button class="menu__item menu__item--danger" id="close-all-menu-button" type="button">Close All</button>
+                  </div>
+                </div>
+              </details>
+              <button class="send-button" id="broadcast-send" type="button" title="Send to all (Ctrl/Cmd+Enter)">
+                <svg class="send-icon" viewBox="0 0 640 512" aria-hidden="true">
+                  <path d="M320 32c-35.3 0-64 28.7-64 64 0 25.5 15 47.4 36.6 57.6l-96.7 289H144c-17.7 0-32 14.3-32 32v6c0 17.7 14.3 32 32 32h112c17.7 0 32-14.3 32-32v-6c0-17.7-14.3-32-32-32h-14.6l78.6-235.8 78.6 235.8H384c-17.7 0-32 14.3-32 32v6c0 17.7 14.3 32 32 32h112c17.7 0 32-14.3 32-32v-6c0-17.7-14.3-32-32-32h-51.9l-96.7-289C369 143.4 384 121.5 384 96c0-35.3-28.7-64-64-64zM96 96c0-88.4 71.6-160 160-160v64c-53 0-96 43-96 96 0 36.5 20.4 68.2 50.4 84.1l-25.6 76.8C130.7 230.6 96 167.7 96 96zm448 0c0 71.7-34.7 134.6-88.8 160.9l-25.6-76.8C459.6 164.2 480 132.5 480 96c0-53-43-96-96-96V-64c88.4 0 160 71.6 160 160z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="section is-hidden" id="open-chats-section">
+          <details class="collapse">
+            <summary>Open chats</summary>
+            <div class="section__header">
+              <h2>Open chats</h2>
+              <button class="ghost" id="refresh-status" type="button">Refresh</button>
+            </div>
+            <ul class="status" id="open-chats"></ul>
+          </details>
+        </section>
+
+        <footer class="footnote"></footer>
+      </div>
+
+      </div>
+      <div class="modal is-hidden" id="settings-modal" role="dialog" aria-modal="true">
+        <div class="modal__backdrop" id="settings-backdrop"></div>
+        <div class="modal__panel">
+          <div class="section__header">
+            <h2>Settings</h2>
+            <button class="ghost" id="close-settings" type="button">Close</button>
+          </div>
+          <div class="form">
+            <label class="form__label" for="history-limit">History limit (conversations)</label>
+            <input class="form__input" id="history-limit" type="number" min="1" max="500" />
+
+            <p class="form__label">Theme</p>
+            <div class="theme-selector" id="theme-selector">
+              <label class="theme-option">
+                <input type="radio" name="theme" value="system" checked />
+                <span>System</span>
+              </label>
+              <label class="theme-option">
+                <input type="radio" name="theme" value="light" />
+                <span>Light</span>
+              </label>
+              <label class="theme-option">
+                <input type="radio" name="theme" value="dark" />
+                <span>Dark</span>
+              </label>
+            </div>
+
+            <p class="form__label">Default LLM selection</p>
+            <div class="toggles" id="default-providers"></div>
+          </div>
+          <div class="button-row">
+            <button class="outline" id="settings-cancel" type="button">Cancel</button>
+            <button class="accent" id="settings-save" type="button">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal is-hidden" id="history-modal" role="dialog" aria-modal="true">
+        <div class="modal__backdrop" id="history-backdrop"></div>
+        <div class="modal__panel">
+          <div class="section__header">
+            <h2>Conversation history</h2>
+            <button class="ghost" id="close-history" type="button">Close</button>
+          </div>
+          <div class="modal__content">
+            <ul class="status" id="conversations"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal is-hidden" id="privacy-modal" role="dialog" aria-modal="true">
+        <div class="modal__backdrop" id="privacy-backdrop"></div>
+        <div class="modal__panel">
+          <div class="section__header">
+            <h2>Privacy policy</h2>
+            <button class="ghost" id="close-privacy" type="button">Close</button>
+          </div>
+          <div class="modal__content">
+            <p>Muchallms runs entirely in your local browser.</p>
+            <p>No data is sent to external servers or analytics.</p>
+            <p>All prompts, settings, and history stay in your browser storage.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal is-hidden" id="faq-modal" role="dialog" aria-modal="true">
+        <div class="modal__backdrop" id="faq-backdrop"></div>
+        <div class="modal__panel">
+          <div class="section__header">
+            <h2>FAQ</h2>
+            <button class="ghost" id="close-faq" type="button">Close</button>
+          </div>
+          <div class="modal__content">
+            <p><strong>Where is my data stored?</strong> Locally in your browser only.</p>
+            <p><strong>Does Muchallms send data anywhere?</strong> No. It does not call external APIs.</p>
+            <p><strong>Can I delete history?</strong> Yes, you can clear it from browser extension storage.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="control.js"></script>
+  </body>
+</html>
