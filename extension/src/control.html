@@ -135,6 +135,13 @@
               </label>
             </div>
 
+            <p class="form__label">Data management</p>
+            <div class="data-actions" style="display: flex; gap: 8px; margin-bottom: 16px;">
+              <button class="outline" id="export-data" type="button" style="flex: 1;">Export Data</button>
+              <button class="outline" id="import-data-trigger" type="button" style="flex: 1;">Import Data</button>
+              <input type="file" id="import-file" accept=".json" style="display: none;" />
+            </div>
+
             <p class="form__label">Default LLM selection</p>
             <div class="toggles" id="default-providers"></div>
           </div>

@@ -15,7 +15,7 @@ const PROVIDERS = [
     id: "gemini",
     name: "Gemini",
     matches: [/gemini\.google\.com/],
-    url: "https://gemini.google.com/"
+    url: "https://gemini.google.com/app"
   },
   {
     id: "grok",

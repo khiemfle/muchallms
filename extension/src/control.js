@@ -9,7 +9,7 @@ const PROVIDERS = [
 const PROVIDER_HOME_URLS = {
   chatgpt: "https://chatgpt.com/",
   claude: "https://claude.ai/",
-  gemini: "https://gemini.google.com/",
+  gemini: "https://gemini.google.com/app",
   grok: "https://grok.com/",
   perplexity: "https://www.perplexity.ai/"
 };
@@ -743,6 +743,12 @@ function normalizeBaseUrl(url) {
   return url.trim().replace(/\/+$/, "");
 }
 
+function normalizeLinks(links) {
+  if (!links) return [];
+  const list = Array.isArray(links) ? links : [links];
+  return list.map((url) => (typeof url === "string" ? url.trim() : "")).filter(Boolean);
+}
+
 function isHomeUrl(providerId, url) {
   const base = normalizeBaseUrl(PROVIDER_HOME_URLS[providerId]);
   const candidate = normalizeBaseUrl(url);
@@ -760,14 +766,11 @@ function hasLinkData(linksByProvider) {
 
 function hasConversationSpecificLinks(linksByProvider) {
   if (!linksByProvider) return false;
-  const entries = Object.entries(linksByProvider).filter(([, links]) => {
-    const list = Array.isArray(links) ? links : [links];
-    return list.some(Boolean);
-  });
+  const entries = Object.entries(linksByProvider).filter(([, links]) => normalizeLinks(links).length > 0);
   if (!entries.length) return false;
   return entries.every(([providerId, links]) => {
-    const list = Array.isArray(links) ? links : [links];
-    return list.some((url) => url && !isHomeUrl(providerId, url));
+    const list = normalizeLinks(links);
+    return list.some((url) => !isHomeUrl(providerId, url));
   });
 }
 
@@ -785,12 +788,19 @@ async function updateConversationLinks(conversationId) {
     updated = true;
     const mergedLinks = { ...(conversation.linksByProvider || {}) };
     Object.entries(linksByProvider).forEach(([providerId, links]) => {
-      const list = Array.isArray(links) ? links : [links];
-      const nonHomeLinks = list.filter((url) => url && !isHomeUrl(providerId, url));
+      const list = normalizeLinks(links);
+      const nonHomeLinks = list.filter((url) => !isHomeUrl(providerId, url));
+      const existingList = normalizeLinks(mergedLinks[providerId]);
+      const existingNonHome = existingList.filter((url) => !isHomeUrl(providerId, url));
       if (nonHomeLinks.length > 0) {
         mergedLinks[providerId] = nonHomeLinks;
-      } else if (!mergedLinks[providerId]) {
-        mergedLinks[providerId] = list.filter(Boolean);
+        return;
+      }
+      if (existingNonHome.length > 0) {
+        return;
+      }
+      if (list.length > 0 || !mergedLinks[providerId]) {
+        mergedLinks[providerId] = list;
       }
     });
     return {
@@ -1006,6 +1016,47 @@ function collectConversationUrlsWithFallback(conversation, providerIds) {
   return urls;
 }
 
+async function exportData() {
+  const data = await chrome.storage.local.get(null);
+  delete data.managedWindowIds;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `muchallms-export-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function importData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || typeof data !== "object") {
+        alert("Invalid export file.");
+        return;
+      }
+
+      const confirmImport = confirm(
+        "This will overwrite your current settings and merge/overwrite conversations. Continue?"
+      );
+      if (!confirmImport) return;
+
+      await chrome.storage.local.set(data);
+      alert("Import successful! Reloading...");
+      location.reload();
+    } catch (err) {
+      console.error(err);
+      alert("Error parsing import file: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
 async function init() {
   const stored = await chrome.storage.local.get(STORAGE_KEYS);
   settings = normalizeSettings(stored.settings);
@@ -1027,6 +1078,28 @@ async function init() {
   if (themeSelector) {
     const themeRadio = themeSelector.querySelector(`input[value="${settings.theme}"]`);
     if (themeRadio) themeRadio.checked = true;
+  }
+  
+  // Hook up Export/Import buttons
+  const exportDataButton = document.getElementById("export-data");
+  const importDataTrigger = document.getElementById("import-data-trigger");
+  const importFileInput = document.getElementById("import-file");
+
+  if (exportDataButton) {
+    exportDataButton.addEventListener("click", exportData);
+  }
+  if (importDataTrigger) {
+    importDataTrigger.addEventListener("click", () => {
+      importFileInput?.click();
+    });
+  }
+  if (importFileInput) {
+    importFileInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        importData(e.target.files[0]);
+        e.target.value = "";
+      }
+    });
   }
   
   if (defaultProvidersContainer) {
