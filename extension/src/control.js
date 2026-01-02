@@ -180,6 +180,17 @@ function getSelectedProvidersWithFallback() {
   return settings.defaultProviders.slice();
 }
 
+function getOrderedProviders(providerIds) {
+  const unique = Array.from(new Set((providerIds || []).filter(Boolean)));
+  const ordered = PROVIDERS.map((provider) => provider.id).filter((id) => unique.includes(id));
+  unique.forEach((id) => {
+    if (!ordered.includes(id)) {
+      ordered.push(id);
+    }
+  });
+  return ordered;
+}
+
 async function refreshStatus() {
   const [statusResponse, tabsResponse] = await Promise.all([
     chrome.runtime.sendMessage({ type: "get_status" }),
@@ -693,6 +704,24 @@ async function refreshConversations() {
   renderConversationDetail(active, openTabs);
 }
 
+function getActiveConversation() {
+  if (!activeConversationId) return null;
+  return cachedConversations.find((conversation) => conversation.id === activeConversationId) || null;
+}
+
+function openConversationWindows(conversation, providerIds) {
+  const urls = collectConversationUrlsWithFallback(conversation, providerIds);
+  if (!urls.length) return;
+  chrome.windows.getCurrent((win) => {
+    chrome.runtime.sendMessage({
+      type: "open_conversation",
+      urls,
+      controlWindowId: win?.id || null
+    });
+  });
+  queueRefresh(800);
+}
+
 async function fetchLinksByProvider() {
   const response = await chrome.runtime.sendMessage({ type: "list_tabs" });
   if (!response || !response.ok) return {};
@@ -731,7 +760,12 @@ function hasLinkData(linksByProvider) {
 
 function hasConversationSpecificLinks(linksByProvider) {
   if (!linksByProvider) return false;
-  return Object.entries(linksByProvider).some(([providerId, links]) => {
+  const entries = Object.entries(linksByProvider).filter(([, links]) => {
+    const list = Array.isArray(links) ? links : [links];
+    return list.some(Boolean);
+  });
+  if (!entries.length) return false;
+  return entries.every(([providerId, links]) => {
     const list = Array.isArray(links) ? links : [links];
     return list.some((url) => url && !isHomeUrl(providerId, url));
   });
@@ -931,26 +965,37 @@ function collectConversationUrls(conversation) {
   return urls;
 }
 
-function collectConversationUrlsWithFallback(conversation) {
-  const urls = [];
+function collectConversationUrlsWithFallback(conversation, providerIds) {
   const linksByProvider = conversation?.linksByProvider || {};
-  const providersWithLinks = new Set(
-    Object.keys(linksByProvider).filter((key) =>
-      Array.isArray(linksByProvider[key]) ? linksByProvider[key].length > 0 : Boolean(linksByProvider[key])
-    )
-  );
+  const explicitProviders = Array.isArray(providerIds) && providerIds.length ? providerIds : null;
+  const selectedProviders = explicitProviders
+    ? explicitProviders
+    : PROVIDERS.map((provider) => provider.id);
+  const fallbackProviders = explicitProviders
+    ? explicitProviders
+    : settings.defaultProviders.slice();
+  const orderedProviders = getOrderedProviders(selectedProviders);
+  const urls = [];
 
-  const orderedProviders = PROVIDERS.map((provider) => provider.id);
   orderedProviders.forEach((providerId) => {
     const links = linksByProvider[providerId];
     const list = Array.isArray(links) ? links : links ? [links] : [];
-    list.forEach((url) => {
-      if (!url) return;
-      if (!urls.includes(url)) {
-        urls.push(url);
-      }
-    });
-    if (!providersWithLinks.has(providerId) && settings.defaultProviders.includes(providerId)) {
+    const normalized = list
+      .map((url) => (typeof url === "string" ? url.trim() : ""))
+      .filter(Boolean);
+    const nonHome = normalized.filter((url) => !isHomeUrl(providerId, url));
+    const preferred = nonHome.length ? nonHome : normalized;
+
+    if (preferred.length) {
+      preferred.forEach((url) => {
+        if (!urls.includes(url)) {
+          urls.push(url);
+        }
+      });
+      return;
+    }
+
+    if (fallbackProviders.includes(providerId)) {
       const fallbackUrl = PROVIDER_HOME_URLS[providerId];
       if (fallbackUrl && !urls.includes(fallbackUrl)) {
         urls.push(fallbackUrl);
@@ -1153,40 +1198,19 @@ async function init() {
 
   if (openLlmsButton) {
     openLlmsButton.addEventListener("click", () => {
-      chrome.windows.getCurrent((win) => {
-        chrome.runtime.sendMessage({
-          type: "new_chat",
-          providers: getSelectedProviders(),
-          controlWindowId: win?.id || null
-        });
-      });
-      queueRefresh(800);
+      openConversationWindows(getActiveConversation(), getSelectedProvidersWithFallback());
     });
   }
 
   if (openMissingLlmsButton) {
     openMissingLlmsButton.addEventListener("click", () => {
-      chrome.windows.getCurrent((win) => {
-        chrome.runtime.sendMessage({
-          type: "new_chat",
-          providers: getSelectedProviders(),
-          controlWindowId: win?.id || null
-        });
-      });
-      queueRefresh(800);
+      openConversationWindows(getActiveConversation(), getSelectedProvidersWithFallback());
     });
   }
 
   if (openLlmsMenuButton) {
     openLlmsMenuButton.addEventListener("click", () => {
-      chrome.windows.getCurrent((win) => {
-        chrome.runtime.sendMessage({
-          type: "new_chat",
-          providers: getSelectedProviders(),
-          controlWindowId: win?.id || null
-        });
-      });
-      queueRefresh(800);
+      openConversationWindows(getActiveConversation(), getSelectedProvidersWithFallback());
       if (llmMenu) llmMenu.open = false;
     });
   }
@@ -1262,16 +1286,7 @@ async function init() {
         if (action === "open") {
           const active =
             cachedConversations.find((conversation) => conversation.id === conversationId) || null;
-          const urls = collectConversationUrlsWithFallback(active);
-          if (!urls.length) return;
-          chrome.windows.getCurrent((win) => {
-            chrome.runtime.sendMessage({
-              type: "open_conversation",
-              urls,
-              controlWindowId: win?.id || null
-            });
-          });
-          queueRefresh(800);
+          openConversationWindows(active);
         }
       });
     }
