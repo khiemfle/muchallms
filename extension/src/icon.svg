@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4facfe;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00f2fe;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#43e97b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#38f9d7;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fa709a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fee140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Top Left Bubble -->
+  <path d="M14 20 C14 13.37 19.37 8 26 8 L54 8 C60.63 8 66 13.37 66 20 L66 44 C66 50.63 60.63 56 54 56 L26 56 L14 64 L14 56 C14 56 14 56 14 56 C7.37 56 2 50.63 2 44 Z" fill="url(#grad1)" stroke="#ffffff" stroke-width="2"/>
+  
+  <!-- Top Right Bubble -->
+  <path d="M74 20 C74 13.37 79.37 8 86 8 L114 8 C120.63 8 126 13.37 126 20 L126 44 C126 50.63 120.63 56 114 56 L86 56 L74 64 L74 56 C74 56 74 56 74 56 C67.37 56 62 50.63 62 44 Z" fill="url(#grad2)" stroke="#ffffff" stroke-width="2"/>
+
+  <!-- Bottom Left Bubble -->
+  <path d="M14 80 C14 73.37 19.37 68 26 68 L54 68 C60.63 68 66 73.37 66 80 L66 104 C66 110.63 60.63 116 54 116 L26 116 L14 124 L14 116 C14 116 14 116 14 116 C7.37 116 2 110.63 2 104 Z" fill="url(#grad3)" stroke="#ffffff" stroke-width="2"/>
+
+  <!-- Bottom Right Bubble -->
+  <path d="M74 80 C74 73.37 79.37 68 86 68 L114 68 C120.63 68 126 73.37 126 80 L126 104 C126 110.63 120.63 116 114 116 L86 116 L74 124 L74 116 C74 116 74 116 74 116 C67.37 116 62 110.63 62 104 Z" fill="url(#grad4)" stroke="#ffffff" stroke-width="2"/>
+
+</svg>
