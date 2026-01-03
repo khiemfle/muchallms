@@ -4,6 +4,12 @@
 
 Muchallms is a Chromium extension that lets you run several LLM web UIs side by side, organize them into a clean grid, and send one prompt to all of them from a single controller. It is a lightweight way to compare outputs and keep your research in one place without leaving the browser.
 
+Muchallms does not require any API keys. It works with your existing free accounts on the supported LLM chat sites.
+
+## Demo
+
+Watch the demo: https://www.youtube.com/watch?v=ZUj9dPOTYFs
+
 ## Why use it
 
 - Less bias in answers: comparing multiple models helps reduce single-model blind spots and gives a more balanced view.
