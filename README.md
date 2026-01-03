@@ -2,6 +2,10 @@
 
 Muchallms is a Chromium extension that manages multiple LLM web UIs (ChatGPT, Claude, Gemini, Grok, Perplexity) in a coordinated grid with a single controller window for broadcasting prompts.
 
+It does not require any API keys. It works with your existing free accounts on the supported LLM chat sites.
+
+Demo: https://www.youtube.com/watch?v=ZUj9dPOTYFs
+
 ## Features
 
 - Detect and organize LLM popup windows into a grid
