@@ -115,29 +115,10 @@ function findSendButton(adapter) {
   return null;
 }
 
-function setInputValue(element, value) {
+function dispatchInputEvent(element, value) {
   if (!element) return;
 
-  if (element.tagName.toLowerCase() === "textarea" || element.tagName.toLowerCase() === "input") {
-    element.focus();
-    element.value = value;
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    return;
-  }
-
-  if (element.isContentEditable) {
-    element.focus();
-    try {
-      if (element.classList.contains("ProseMirror")) {
-        element.innerHTML = `<p>${value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
-      } else {
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, value);
-      }
-    } catch (error) {
-      element.textContent = value;
-    }
-    element.dispatchEvent(new Event("input", { bubbles: true }));
+  if (typeof InputEvent === "function") {
     try {
       const inputEvent = new InputEvent("input", {
         bubbles: true,
@@ -145,9 +126,43 @@ function setInputValue(element, value) {
         inputType: "insertText"
       });
       element.dispatchEvent(inputEvent);
+      return;
     } catch (error) {
       // Some browsers block InputEvent in content scripts.
     }
+  }
+
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setInputValue(element, value) {
+  if (!element) return;
+
+  if (element.tagName.toLowerCase() === "textarea" || element.tagName.toLowerCase() === "input") {
+    element.focus();
+    element.value = value;
+    dispatchInputEvent(element, value);
+    return;
+  }
+
+  if (element.isContentEditable) {
+    element.focus();
+    let usedExecCommand = false;
+    try {
+      if (element.classList.contains("ProseMirror")) {
+        element.innerHTML = `<p>${value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+      } else {
+        document.execCommand("selectAll", false, null);
+        usedExecCommand = document.execCommand("insertText", false, value);
+      }
+    } catch (error) {
+      element.textContent = value;
+    }
+
+    if (!usedExecCommand) {
+      dispatchInputEvent(element, value);
+    }
+
     element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", code: "Enter" }));
   }
 }
