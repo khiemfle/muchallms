@@ -709,9 +709,36 @@ function getActiveConversation() {
   return cachedConversations.find((conversation) => conversation.id === activeConversationId) || null;
 }
 
-function openConversationWindows(conversation, providerIds) {
+function isConversationOpenForProviders(openTabs, conversation, providerIds) {
+  if (!conversation || !conversation.linksByProvider) return false;
+  const linksByProvider = conversation.linksByProvider || {};
+  const providerList = getOrderedProviders(providerIds);
+
+  return providerList.every((providerId) => {
+    const links = normalizeLinks(linksByProvider[providerId]).filter((url) => !isHomeUrl(providerId, url));
+    if (!links.length) return false;
+    return openTabs.some((tab) => {
+      if (tab.providerId !== providerId) return false;
+      return links.some((link) => urlsMatch(tab.url, link));
+    });
+  });
+}
+
+async function openConversationWindows(conversation, providerIds) {
   const urls = collectConversationUrlsWithFallback(conversation, providerIds);
   if (!urls.length) return;
+
+  if (conversation) {
+    const tabsResponse = await chrome.runtime.sendMessage({ type: "list_tabs" });
+    const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
+    const providerList = getOrderedProviders(providerIds);
+    if (providerList.length && isConversationOpenForProviders(openTabs, conversation, providerList)) {
+      await chrome.runtime.sendMessage({ type: "focus_all" });
+      queueRefresh(400);
+      return;
+    }
+  }
+
   chrome.windows.getCurrent((win) => {
     chrome.runtime.sendMessage({
       type: "open_conversation",
@@ -747,6 +774,22 @@ function normalizeLinks(links) {
   if (!links) return [];
   const list = Array.isArray(links) ? links : [links];
   return list.map((url) => (typeof url === "string" ? url.trim() : "")).filter(Boolean);
+}
+
+function normalizeUrlForMatch(url) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return normalizeBaseUrl(`${parsed.origin}${parsed.pathname}`);
+  } catch (error) {
+    return normalizeBaseUrl(url);
+  }
+}
+
+function urlsMatch(a, b) {
+  const left = normalizeUrlForMatch(a);
+  const right = normalizeUrlForMatch(b);
+  return Boolean(left && right && left === right);
 }
 
 function isHomeUrl(providerId, url) {
