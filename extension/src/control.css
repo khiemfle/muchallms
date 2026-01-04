@@ -204,6 +204,14 @@ body {
   background: #2a9d8f;
 }
 
+.status__item--idle .status__dot {
+  background: #f4b740;
+}
+
+.status__item--closed .status__dot {
+  background: #d9534f;
+}
+
 .conversation__preview {
   display: none;
   margin-top: 8px;
@@ -639,6 +647,13 @@ textarea {
   background: #2a9d8f;
 }
 
+.llm-menu-item--idle .llm-menu-dot {
+  background: #f4b740;
+}
+
+.llm-menu-item--closed .llm-menu-dot {
+  background: #d9534f;
+}
 .llm-menu-item-state {
   font-size: 0.7rem;
   color: var(--muted);

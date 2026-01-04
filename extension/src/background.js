@@ -31,6 +31,22 @@ const PROVIDERS = [
   }
 ];
 
+let debugEnabled = false;
+
+chrome.storage.local.get(["debug"], (data) => {
+  debugEnabled = Boolean(data?.debug);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.debug) return;
+  debugEnabled = Boolean(changes.debug.newValue);
+});
+
+function logDebug(...args) {
+  if (!debugEnabled) return;
+  console.log("[Muchallms]", ...args);
+}
+
 function getProviderForUrl(url) {
   if (!url) return null;
   return (
@@ -250,6 +266,29 @@ async function closeProviderWindows(options = {}) {
   await Promise.all(removals);
 }
 
+async function ensureManagedProviderWindows() {
+  const windows = await getAllWindows();
+  const managedIds = new Set(await getManagedWindowIds());
+  let updated = false;
+
+  windows.forEach((win) => {
+    if (win.type !== "popup") return;
+    const hasControlTab = (win.tabs || []).some((tab) => isControlUrl(tab.url || ""));
+    const hasProviderTab = (win.tabs || []).some((tab) => getProviderForUrl(tab.url || ""));
+    if (!hasControlTab && !hasProviderTab) return;
+    if (!managedIds.has(win.id)) {
+      managedIds.add(win.id);
+      updated = true;
+      logDebug("Adopted unmanaged window", { windowId: win.id, hasControlTab, hasProviderTab });
+    }
+  });
+
+  if (updated) {
+    logDebug("Managed window list updated", { count: managedIds.size });
+    await setManagedWindowIds(Array.from(managedIds));
+  }
+}
+
 async function focusManagedWindows() {
   const windows = await getAllWindows();
   const managedIds = new Set(await getManagedWindowIds());
@@ -260,6 +299,7 @@ async function focusManagedWindows() {
       (win.tabs || []).some((tab) => isControlUrl(tab.url || "") || getProviderForUrl(tab.url || ""))
   );
 
+  logDebug("Focusing managed windows", { total: targets.length });
   for (const win of targets) {
     await new Promise((resolve) => {
       chrome.windows.update(win.id, { focused: true }, () => resolve());
@@ -277,6 +317,7 @@ async function relayoutManagedWindows() {
       (win.tabs || []).some((tab) => isControlUrl(tab.url || "") || getProviderForUrl(tab.url || ""))
   );
 
+  logDebug("Relayout managed windows", { total: managedPopups.length });
   if (!managedPopups.length) return;
 
   const controlWindow =
@@ -326,6 +367,8 @@ async function listProviderTabs() {
       tabs.push({
         windowId: win.id,
         tabId: tab.id,
+        windowFocused: Boolean(win.focused),
+        windowState: win.state || "normal",
         providerId: provider.id,
         providerName: provider.name,
         title: tab.title || provider.name,
@@ -728,6 +771,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === "focus_all") {
+      logDebug("focus_all requested");
+      await ensureManagedProviderWindows();
       await relayoutManagedWindows();
       await focusManagedWindows();
       sendResponse({ ok: true });

@@ -1,6 +1,6 @@
 {
   "name": "Muchallms Grid Controller",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "manifest_version": 3,
   "description": "Manage multiple LLM windows in a grid and broadcast prompts.",
   "action": {

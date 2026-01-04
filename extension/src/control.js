@@ -72,6 +72,22 @@ const DEFAULT_SETTINGS = {
   theme: "system"
 };
 
+let debugEnabled = false;
+
+chrome.storage.local.get(["debug"], (data) => {
+  debugEnabled = Boolean(data?.debug);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.debug) return;
+  debugEnabled = Boolean(changes.debug.newValue);
+});
+
+function logDebug(...args) {
+  if (!debugEnabled) return;
+  console.log("[Muchallms]", ...args);
+}
+
 let cachedConversations = [];
 let activeConversationId = null;
 let lastRecordedPrompt = "";
@@ -233,7 +249,7 @@ function queueRefresh(delayMs = 300) {
 function getOpenTabsSignature(tabs) {
   if (!tabs || !tabs.length) return "";
   return tabs
-    .map(tab => `${tab.providerId}:${tab.tabId}`)
+    .map(tab => `${tab.providerId}:${tab.tabId}:${tab.windowState || "normal"}:${tab.windowFocused ? 1 : 0}`)
     .sort()
     .join("|");
 }
@@ -241,21 +257,27 @@ function getOpenTabsSignature(tabs) {
 function updateSendButtonState(openTabs) {
   if (!sendButton) return;
   const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
-  const openProviderIds = (openTabs || []).map(tab => tab.providerId).filter(Boolean);
-  // Disable send button if none of the configured LLMs are open
-  const hasAnyConfiguredLlmOpen = defaultProviders.some(id => openProviderIds.includes(id));
-  sendButton.disabled = !hasAnyConfiguredLlmOpen;
-  sendButton.title = hasAnyConfiguredLlmOpen
+  const frontProviderIds = (openTabs || [])
+    .filter(tab => tab.windowState !== "minimized")
+    .map(tab => tab.providerId)
+    .filter(Boolean);
+  // Disable send button if none of the configured LLMs are in front
+  const hasAnyConfiguredLlmFront = defaultProviders.some(id => frontProviderIds.includes(id));
+  sendButton.disabled = !hasAnyConfiguredLlmFront;
+  sendButton.title = hasAnyConfiguredLlmFront
     ? "Send to all (Ctrl/Cmd+Enter)"
-    : "Open LLMs to send messages";
+    : "Bring LLMs to front to send messages";
 }
 
 function renderLlmMenuDropdown(openTabs) {
   const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
-  const openProviderIds = (openTabs || []).map(tab => tab.providerId).filter(Boolean);
+  const frontProviderIds = (openTabs || [])
+    .filter(tab => tab.windowState !== "minimized")
+    .map(tab => tab.providerId)
+    .filter(Boolean);
   
   // Count open LLMs among configured providers
-  const openCount = defaultProviders.filter(id => openProviderIds.includes(id)).length;
+  const openCount = defaultProviders.filter(id => frontProviderIds.includes(id)).length;
   
   // Update count label
   if (llmCountLabel) {
@@ -278,15 +300,21 @@ function renderLlmMenuDropdown(openTabs) {
       const provider = PROVIDERS.find(p => p.id === providerId);
       if (!provider) return;
       
-      const isOpen = openProviderIds.includes(providerId);
+      const providerTabs = (openTabs || []).filter(tab => tab.providerId === providerId);
+      const isOpen = providerTabs.length > 0;
+      const isFront = providerTabs.some(tab => tab.windowState !== "minimized");
       const item = document.createElement("li");
-      item.className = `llm-menu-item ${isOpen ? "llm-menu-item--open" : ""}`;
+      if (isOpen) {
+        item.className = `llm-menu-item ${isFront ? "llm-menu-item--open" : "llm-menu-item--idle"}`;
+      } else {
+        item.className = "llm-menu-item llm-menu-item--closed";
+      }
       item.innerHTML = `
         <span class="llm-menu-item-label">
           <span class="llm-menu-dot"></span>
           ${provider.name}
         </span>
-        <span class="llm-menu-item-state">${isOpen ? "open" : "closed"}</span>
+        <span class="llm-menu-item-state">${isOpen ? (isFront ? "open" : "N/A") : "closed"}</span>
       `;
       llmMenuStatusList.appendChild(item);
     });
@@ -302,6 +330,23 @@ async function pollLlmStatus() {
     // Always update send button state and LLM menu
     updateSendButtonState(openTabs);
     renderLlmMenuDropdown(openTabs);
+    if (llmStatusContainer && !llmStatusContainer.classList.contains("is-hidden")) {
+      renderLlmStatusInDetail(openTabs);
+      const actionButton = llmStatusContainer.querySelector(".llm-status-action");
+      if (actionButton) {
+        const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+        const frontProviderIds = openTabs
+          .filter(tab => tab.windowState !== "minimized")
+          .map(tab => tab.providerId)
+          .filter(Boolean);
+        const allLlmsOpen = defaultProviders.every(id => frontProviderIds.includes(id));
+        if (allLlmsOpen) {
+          actionButton.classList.add("is-hidden");
+        } else {
+          actionButton.classList.remove("is-hidden");
+        }
+      }
+    }
     
     // Only refresh if the open tabs have changed
     if (currentSignature !== lastOpenTabsSignature) {
@@ -483,27 +528,39 @@ function renderLlmStatusInDetail(openTabs) {
   llmStatusList.innerHTML = "";
   
   const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
-  const openProviderIds = openTabs.map(tab => tab.providerId).filter(Boolean);
   
   // Show status for each default provider
   defaultProviders.forEach((providerId) => {
     const provider = PROVIDERS.find(p => p.id === providerId);
     if (!provider) return;
     
-    // Find if there's an open tab for this provider
-    const openTab = openTabs.find(tab => tab.providerId === providerId);
-    const isOpen = Boolean(openTab);
+    const providerTabs = openTabs.filter(tab => tab.providerId === providerId);
+    const isOpen = providerTabs.length > 0;
+    const frontTab = providerTabs.find(tab => tab.windowState !== "minimized");
+    const isFront = Boolean(frontTab);
     
     const item = document.createElement("li");
-    item.className = `status__item ${isOpen ? "status__item--on" : ""}`;
+    if (isOpen) {
+      item.className = `status__item ${isFront ? "status__item--on" : "status__item--idle"}`;
+    } else {
+      item.className = "status__item status__item--closed";
+    }
     
-    if (isOpen && openTab) {
+    if (isOpen && isFront) {
       item.innerHTML = `
         <span class="status__label">
           <span class="status__dot"></span>
           ${provider.name}
         </span>
-        <span class="status__state">${openTab.title || "open"}</span>
+        <span class="status__state">${frontTab?.title || "open"}</span>
+      `;
+    } else if (isOpen) {
+      item.innerHTML = `
+        <span class="status__label">
+          <span class="status__dot"></span>
+          ${provider.name}
+        </span>
+        <span class="status__state">N/A</span>
       `;
     } else {
       item.innerHTML = `
@@ -519,10 +576,11 @@ function renderLlmStatusInDetail(openTabs) {
 }
 
 function renderConversationDetail(conversation, openTabs = []) {
-  const openProviderIds = openTabs.map(tab => tab.providerId).filter(Boolean);
-  const hasOpenTabs = openTabs.length > 0;
+  const frontTabs = openTabs.filter(tab => tab.windowState !== "minimized");
+  const frontProviderIds = frontTabs.map(tab => tab.providerId).filter(Boolean);
+  const hasOpenTabs = frontTabs.length > 0;
   const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
-  const allLlmsOpen = defaultProviders.every(id => openProviderIds.includes(id));
+  const allLlmsOpen = defaultProviders.every(id => frontProviderIds.includes(id));
 
   if (!conversation) {
     if (headerConversation) {
@@ -721,32 +779,67 @@ function isConversationOpenForProviders(openTabs, conversation, providerIds) {
   if (!conversation || !conversation.linksByProvider) return false;
   const linksByProvider = conversation.linksByProvider || {};
   const providerList = getOrderedProviders(providerIds);
+  const missingProviders = [];
 
-  return providerList.every((providerId) => {
+  const isOpenForAll = providerList.every((providerId) => {
     const links = normalizeLinks(linksByProvider[providerId]).filter((url) => !isHomeUrl(providerId, url));
-    if (!links.length) return false;
-    return openTabs.some((tab) => {
+    if (!links.length) {
+      missingProviders.push({ providerId, reason: "no-links" });
+      return false;
+    }
+    const matched = openTabs.some((tab) => {
       if (tab.providerId !== providerId) return false;
       return links.some((link) => urlsMatch(tab.url, link));
     });
+    if (!matched) {
+      missingProviders.push({ providerId, reason: "no-open-match" });
+    }
+    return matched;
   });
+
+  if (missingProviders.length) {
+    logDebug("Conversation not open for all providers", { missingProviders });
+  }
+
+  return isOpenForAll;
 }
 
 async function openConversationWindows(conversation, providerIds) {
+  const tabsResponse = await chrome.runtime.sendMessage({ type: "list_tabs" });
+  const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
+
+  if (!conversation && openTabs.length) {
+    logDebug("Open LLMs: no active conversation, focusing existing windows");
+    await chrome.runtime.sendMessage({ type: "focus_all" });
+    queueRefresh(400);
+    return;
+  }
+
   const providerList = getConversationProviderIds(conversation, providerIds);
   const urls = collectConversationUrlsWithFallback(conversation, providerList);
-  if (!urls.length) return;
+  if (!urls.length) {
+    logDebug("Open LLMs: no stored URLs, focusing existing windows if any");
+    if (openTabs.length) {
+      await chrome.runtime.sendMessage({ type: "focus_all" });
+      queueRefresh(400);
+    }
+    return;
+  }
 
   if (conversation) {
-    const tabsResponse = await chrome.runtime.sendMessage({ type: "list_tabs" });
-    const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
     if (providerList.length && isConversationOpenForProviders(openTabs, conversation, providerList)) {
+      logDebug("Open LLMs: conversation already open, focusing existing windows");
       await chrome.runtime.sendMessage({ type: "focus_all" });
       queueRefresh(400);
       return;
     }
   }
 
+  logDebug("Open LLMs: opening conversation grid", {
+    conversationId: conversation?.id || null,
+    providerList,
+    urls
+  });
   chrome.windows.getCurrent((win) => {
     chrome.runtime.sendMessage({
       type: "open_conversation",
@@ -976,12 +1069,23 @@ async function handleBroadcast(mode) {
   }
   const promptValue = promptField.value;
   try {
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: "broadcast",
       prompt: promptValue,
       providers: getSelectedProviders(),
       mode
     });
+    const result = response?.result;
+    if (result && result.total > 0 && result.okCount === 0) {
+      logDebug("Broadcast returned zero successes, retrying once", result);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      await chrome.runtime.sendMessage({
+        type: "broadcast",
+        prompt: promptValue,
+        providers: getSelectedProviders(),
+        mode
+      });
+    }
     if (shouldRecordPrompt(mode, promptValue)) {
       await recordConversationPrompt(promptValue);
     }
