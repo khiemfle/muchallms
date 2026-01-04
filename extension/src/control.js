@@ -709,6 +709,14 @@ function getActiveConversation() {
   return cachedConversations.find((conversation) => conversation.id === activeConversationId) || null;
 }
 
+function getConversationProviderIds(conversation, providerIds) {
+  const requested = Array.isArray(providerIds) && providerIds.length
+    ? providerIds
+    : settings.defaultProviders.slice();
+  const linked = conversation?.linksByProvider ? Object.keys(conversation.linksByProvider) : [];
+  return getOrderedProviders(requested.concat(linked));
+}
+
 function isConversationOpenForProviders(openTabs, conversation, providerIds) {
   if (!conversation || !conversation.linksByProvider) return false;
   const linksByProvider = conversation.linksByProvider || {};
@@ -725,13 +733,13 @@ function isConversationOpenForProviders(openTabs, conversation, providerIds) {
 }
 
 async function openConversationWindows(conversation, providerIds) {
-  const urls = collectConversationUrlsWithFallback(conversation, providerIds);
+  const providerList = getConversationProviderIds(conversation, providerIds);
+  const urls = collectConversationUrlsWithFallback(conversation, providerList);
   if (!urls.length) return;
 
   if (conversation) {
     const tabsResponse = await chrome.runtime.sendMessage({ type: "list_tabs" });
     const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
-    const providerList = getOrderedProviders(providerIds);
     if (providerList.length && isConversationOpenForProviders(openTabs, conversation, providerList)) {
       await chrome.runtime.sendMessage({ type: "focus_all" });
       queueRefresh(400);
