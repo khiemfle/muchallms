@@ -115,6 +115,16 @@ function findSendButton(adapter) {
   return null;
 }
 
+function selectEditableContents(element) {
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 function dispatchInputEvent(element, value) {
   if (!element) return;
 
@@ -152,14 +162,24 @@ function setInputValue(element, value) {
       if (element.classList.contains("ProseMirror")) {
         element.innerHTML = `<p>${value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
       } else {
-        document.execCommand("selectAll", false, null);
+        selectEditableContents(element);
         usedExecCommand = document.execCommand("insertText", false, value);
       }
     } catch (error) {
       element.textContent = value;
     }
 
-    if (!usedExecCommand) {
+    if (usedExecCommand) {
+      setTimeout(() => {
+        const expected = normalizeText(value);
+        const current = normalizeText(readInputValue(element));
+        const matched = expected ? current.includes(expected) : current.length === 0;
+        if (!matched) {
+          element.textContent = value;
+          dispatchInputEvent(element, value);
+        }
+      }, 0);
+    } else {
       dispatchInputEvent(element, value);
     }
 
