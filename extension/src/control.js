@@ -59,6 +59,10 @@ const historyModal = document.getElementById("history-modal");
 const historyBackdrop = document.getElementById("history-backdrop");
 const openHistoryButton = document.getElementById("open-history");
 const closeHistoryButton = document.getElementById("close-history");
+const historySearchInput = document.getElementById("history-search-input");
+const historySearchMode = document.getElementById("history-search-mode");
+const historySearchHelp = document.getElementById("history-search-help");
+const historySearchStatus = document.getElementById("history-search-status");
 const llmMenu = document.getElementById("llm-menu");
 const llmCountLabel = document.getElementById("llm-count-label");
 const llmMenuStatusList = document.getElementById("llm-menu-status-list");
@@ -95,6 +99,7 @@ let lastRecordedAt = 0;
 let settings = { ...DEFAULT_SETTINGS };
 let llmStatusPollingInterval = null;
 let lastOpenTabsSignature = "";
+let historySearchState = { query: "", mode: "contains", regexError: "" };
 
 const VALID_THEMES = ["system", "light", "dark"];
 
@@ -432,12 +437,108 @@ function sortConversations(conversations) {
   });
 }
 
-function renderConversationList(conversations, activeId) {
+function getConversationSearchTexts(conversation) {
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  const texts = messages
+    .map((message) => (message && message.prompt ? message.prompt : ""))
+    .filter(Boolean);
+  if (!texts.length && conversation?.rootPrompt) {
+    texts.push(conversation.rootPrompt);
+  }
+  return texts;
+}
+
+function buildSearchRegex(query) {
+  const trimmed = (query || "").trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^\/(.+)\/([gimsuy]*)$/);
+  let pattern = trimmed;
+  let flags = "i";
+  let hasExplicitDelimiter = false;
+  if (match) {
+    pattern = match[1];
+    flags = match[2] || "";
+    hasExplicitDelimiter = true;
+  }
+  const normalizedFlags = hasExplicitDelimiter ? flags : (flags || "i");
+  return new RegExp(pattern, normalizedFlags);
+}
+
+function updateHistorySearchLabels(total, matched) {
+  if (historySearchHelp) {
+    historySearchHelp.classList.remove("form__helper--error");
+    if (historySearchState.regexError) {
+      historySearchHelp.textContent = `Invalid regex: ${historySearchState.regexError}`;
+      historySearchHelp.classList.add("form__helper--error");
+    } else if (historySearchState.mode === "regex" && historySearchState.query) {
+      historySearchHelp.textContent = "Regex uses JavaScript syntax. Wrap with /pattern/flags to set flags.";
+    } else {
+      historySearchHelp.textContent = "";
+    }
+  }
+  if (historySearchStatus) {
+    if (historySearchState.query) {
+      historySearchStatus.textContent = `Showing ${matched} of ${total}`;
+    } else {
+      historySearchStatus.textContent = total ? `Showing ${total}` : "";
+    }
+  }
+}
+
+function applyHistorySearch() {
+  const total = cachedConversations.length;
+  if (!conversationsList) return;
+  if (!historySearchInput || !historySearchMode) {
+    renderConversationList(cachedConversations, activeConversationId);
+    return;
+  }
+
+  historySearchState.query = (historySearchInput.value || "").trim();
+  historySearchState.mode = historySearchMode.value === "regex" ? "regex" : "contains";
+  historySearchState.regexError = "";
+
+  let filtered = cachedConversations;
+  if (historySearchState.query) {
+    if (historySearchState.mode === "regex") {
+      let regex = null;
+      try {
+        regex = buildSearchRegex(historySearchState.query);
+      } catch (error) {
+        historySearchState.regexError = error?.message || "Invalid pattern";
+        updateHistorySearchLabels(total, 0);
+        renderConversationList([], activeConversationId, "No conversations match your search.");
+        return;
+      }
+      filtered = cachedConversations.filter((conversation) => {
+        const texts = getConversationSearchTexts(conversation);
+        return texts.some((text) => {
+          if (!regex) return false;
+          if (regex.global || regex.sticky) regex.lastIndex = 0;
+          return regex.test(text);
+        });
+      });
+    } else {
+      const needle = historySearchState.query.toLowerCase();
+      filtered = cachedConversations.filter((conversation) => {
+        const texts = getConversationSearchTexts(conversation);
+        return texts.some((text) => text.toLowerCase().includes(needle));
+      });
+    }
+  }
+
+  updateHistorySearchLabels(total, filtered.length);
+  const emptyMessage = historySearchState.query
+    ? "No conversations match your search."
+    : "No conversations yet";
+  renderConversationList(filtered, activeConversationId, emptyMessage);
+}
+
+function renderConversationList(conversations, activeId, emptyMessage = "No conversations yet") {
   conversationsList.innerHTML = "";
   if (!conversations.length) {
     const item = document.createElement("li");
     item.className = "status__item";
-    item.innerHTML = "<span class=\"status__label\">No conversations yet</span>";
+    item.innerHTML = `<span class="status__label">${emptyMessage}</span>`;
     conversationsList.appendChild(item);
     return;
   }
@@ -755,7 +856,7 @@ async function refreshConversations() {
   const conversations = normalizeConversations(stored.conversations || []);
   activeConversationId = stored.activeConversationId || null;
   cachedConversations = sortConversations(conversations);
-  renderConversationList(cachedConversations, activeConversationId);
+  applyHistorySearch();
   const active =
     cachedConversations.find((conversation) => conversation.id === activeConversationId) || null;
   const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
@@ -1289,6 +1390,8 @@ async function init() {
     historyModal?.classList.remove("is-hidden");
     const menu = document.getElementById("header-menu");
     if (menu) menu.open = false;
+    applyHistorySearch();
+    historySearchInput?.focus();
   };
   const closeHistory = () => {
     historyModal?.classList.add("is-hidden");
@@ -1327,6 +1430,12 @@ async function init() {
   }
   if (closeHistoryButton) {
     closeHistoryButton.addEventListener("click", closeHistory);
+  }
+  if (historySearchInput) {
+    historySearchInput.addEventListener("input", applyHistorySearch);
+  }
+  if (historySearchMode) {
+    historySearchMode.addEventListener("change", applyHistorySearch);
   }
   if (historyBackdrop) {
     historyBackdrop.addEventListener("click", closeHistory);

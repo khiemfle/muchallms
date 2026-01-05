@@ -760,6 +760,20 @@ textarea {
   color: var(--ink);
 }
 
+.form__helper {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.form__helper--error {
+  color: #d9534f;
+}
+
+.history-search {
+  margin-bottom: 12px;
+}
+
 .is-hidden,
 .tab-panel.is-hidden {
   display: none;

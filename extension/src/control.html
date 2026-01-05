@@ -160,6 +160,17 @@
             <button class="ghost" id="close-history" type="button">Close</button>
           </div>
           <div class="modal__content">
+            <div class="form history-search" id="history-search">
+              <label class="form__label" for="history-search-input">Search messages</label>
+              <input class="form__input" id="history-search-input" type="text" placeholder="Find text in messages" />
+              <label class="form__label" for="history-search-mode">Search mode</label>
+              <select class="form__input" id="history-search-mode">
+                <option value="contains" selected>Contains</option>
+                <option value="regex">Regex</option>
+              </select>
+              <p class="form__helper" id="history-search-help"></p>
+              <p class="form__helper" id="history-search-status"></p>
+            </div>
             <ul class="status" id="conversations"></ul>
           </div>
         </div>
