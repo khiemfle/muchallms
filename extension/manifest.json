@@ -1,6 +1,6 @@
 {
   "name": "Muchallms Grid Controller",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "manifest_version": 3,
   "description": "Manage multiple LLM windows in a grid and broadcast prompts.",
   "action": {
@@ -25,7 +25,8 @@
     "tabs",
     "windows",
     "storage",
-    "system.display"
+    "system.display",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",

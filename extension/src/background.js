@@ -719,6 +719,20 @@ chrome.action.onClicked.addListener(() => {
   ensureControlWindow({ width: 420, height: 600 });
 });
 
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "reload-extension",
+    title: "Reload extension",
+    contexts: ["action"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === "reload-extension") {
+    chrome.runtime.reload();
+  }
+});
+
 chrome.windows.onRemoved.addListener((windowId) => {
   removeManagedWindowId(windowId);
 });
