@@ -78,6 +78,16 @@
                     <p class="llm-menu-title">LLM Status</p>
                     <ul class="llm-menu-list" id="llm-menu-status-list"></ul>
                   </div>
+                  <div class="llm-menu-url-form is-hidden" id="llm-menu-url-form">
+                    <p class="llm-menu-url-form__label">URL for <strong id="llm-menu-url-provider-name"></strong></p>
+                    <p class="llm-menu-url-form__default" id="llm-menu-url-default"></p>
+                    <input class="form__input" id="llm-menu-url-input" type="url" placeholder="" />
+                    <div class="llm-menu-url-form__actions">
+                      <button class="accent" id="llm-menu-url-save" type="button">Save</button>
+                      <button class="outline" id="llm-menu-url-cancel" type="button">Cancel</button>
+                      <button class="ghost" id="llm-menu-url-clear" type="button">Reset</button>
+                    </div>
+                  </div>
                   <div class="llm-menu-actions">
                     <button class="menu__item" id="open-llms-menu-button" type="button">Open LLMs</button>
                     <button class="menu__item menu__item--danger" id="close-all-menu-button" type="button">Close All</button>
@@ -144,6 +154,9 @@
 
             <p class="form__label">Default LLM selection</p>
             <div class="toggles" id="default-providers"></div>
+
+            <p class="form__label">LLM init URLs <span class="form__helper-inline">(leave blank to use default)</span></p>
+            <div id="provider-init-urls"></div>
           </div>
           <div class="button-row">
             <button class="outline" id="settings-cancel" type="button">Cancel</button>

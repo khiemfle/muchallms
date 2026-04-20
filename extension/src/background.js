@@ -443,7 +443,7 @@ function getGridDimensions(count) {
   return { columns, rows };
 }
 
-async function openAutoGrid({ providerIds, controlWindowId }) {
+async function openAutoGrid({ providerIds, controlWindowId, providerUrls }) {
   const providers = PROVIDERS.filter((provider) => providerIds.includes(provider.id));
   const totalWindows = providers.length + 1;
   if (totalWindows <= 0) return;
@@ -467,7 +467,10 @@ async function openAutoGrid({ providerIds, controlWindowId }) {
       windowId: resolvedControlWindowId,
       url: chrome.runtime.getURL("src/control.html")
     }
-  ].concat(providers.map((provider) => ({ type: "provider", url: provider.url })));
+  ].concat(providers.map((provider) => ({
+    type: "provider",
+    url: (providerUrls && providerUrls[provider.id]) ? providerUrls[provider.id] : provider.url
+  })));
 
   const width = Math.floor(workArea.width / columns);
   const height = Math.floor(workArea.height / rows);
@@ -752,6 +755,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await closeProviderWindows({ includeUnmanaged: true });
       await openAutoGrid({
         providerIds: message.providers || [],
+        providerUrls: message.providerUrls || null,
         controlWindowId: message.controlWindowId || null
       });
       sendResponse({ ok: true });
