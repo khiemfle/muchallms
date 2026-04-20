@@ -1031,3 +1031,326 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Provider label with URL subtitle in status list */
+.status__label-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.status__url {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-url-form__current {
+  margin: 0 0 5px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* Per-chat disabled provider */
+.status__item--chat-disabled {
+  opacity: 0.5;
+}
+
+.status__item--chat-disabled .status__dot {
+  background: var(--muted, #aaa);
+}
+
+/* Inline URL edit form inside a status item */
+.provider-url-form {
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.provider-url-form__label {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.provider-url-form .form__input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.provider-url-form__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.provider-url-form__actions button {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+}
+
+/* Provider init URL rows in settings */
+.provider-url-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.provider-url-row__label {
+  font-size: 0.8rem;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.provider-url-row__input-wrap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.provider-url-row__input-wrap .form__input {
+  flex: 1;
+  font-size: 0.8rem;
+}
+
+.provider-url-row__reset {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.provider-url-row__reset:hover {
+  color: var(--ink);
+}
+
+/* Inline helper text in form labels */
+.form__helper-inline {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* LLM menu disabled state */
+.llm-menu-item--disabled {
+  opacity: 0.5;
+}
+
+/* LLM menu item — URL changed state */
+.llm-menu-item--url-changed {
+  flex-wrap: wrap;
+  border: 1px solid #f4b740;
+}
+
+.llm-menu-item-url--changed {
+  color: #f4b740;
+}
+
+/* Inline URL change notification block */
+.llm-menu-url-changed {
+  width: 100%;
+  padding: 6px 0 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.llm-menu-url-changed__title {
+  margin: 0 0 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #f4b740;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.llm-menu-url-changed__row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+
+.llm-menu-url-changed__key {
+  font-size: 0.65rem;
+  color: var(--muted);
+  min-width: 38px;
+  flex-shrink: 0;
+}
+
+.llm-menu-url-changed__val {
+  font-size: 0.7rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-menu-url-changed__val--new {
+  color: #2a9d8f;
+  font-weight: 600;
+}
+
+.llm-menu-url-changed__actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+/* URL change entries in conversation timeline */
+.conversation__item--url-change {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  font-size: 0.8rem;
+}
+
+.conversation__url-change-icon {
+  font-size: 0.75rem;
+  color: #2a9d8f;
+  flex-shrink: 0;
+}
+
+.conversation__url-change-body {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.conversation__url-change-provider {
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.conversation__url-change-url {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* LLM menu item name + URL subtitle */
+.llm-menu-item-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.llm-menu-item-url {
+  font-size: 0.65rem;
+  color: #2a9d8f;
+  font-weight: 400;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* URL form default hint */
+.llm-menu-url-form__default {
+  margin: 0 0 5px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* LLM menu item right-side layout */
+.llm-menu-item-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Per-chat chip buttons inside LLM menu */
+.llm-menu-item-chips {
+  display: flex;
+  gap: 4px;
+}
+
+.llm-menu-chip {
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.llm-menu-chip:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.llm-menu-chip--off {
+  background: var(--border);
+  color: var(--muted);
+}
+
+.llm-menu-chip--set {
+  border-color: #2a9d8f;
+  color: #2a9d8f;
+}
+
+/* URL edit form inside LLM menu */
+.llm-menu-url-form {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.llm-menu-url-form__label {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.llm-menu-url-form .form__input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+}
+
+.llm-menu-url-form__actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.llm-menu-url-form__actions button {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink);
+}

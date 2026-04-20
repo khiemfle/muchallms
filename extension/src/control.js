@@ -73,7 +73,8 @@ const closeAllMenuButton = document.getElementById("close-all-menu-button");
 const DEFAULT_SETTINGS = {
   historyLimit: 50,
   defaultProviders: PROVIDERS.map((provider) => provider.id),
-  theme: "system"
+  theme: "system",
+  providerUrls: {}
 };
 
 let debugEnabled = false;
@@ -110,11 +111,38 @@ function normalizeSettings(value) {
     ? value.defaultProviders.filter((id) => PROVIDERS.some((provider) => provider.id === id))
     : DEFAULT_SETTINGS.defaultProviders;
   const theme = VALID_THEMES.includes(value.theme) ? value.theme : DEFAULT_SETTINGS.theme;
+  const providerUrls = {};
+  if (value.providerUrls && typeof value.providerUrls === "object") {
+    PROVIDERS.forEach((provider) => {
+      const url = value.providerUrls[provider.id];
+      if (typeof url === "string" && url.trim()) {
+        providerUrls[provider.id] = url.trim();
+      }
+    });
+  }
   return {
     historyLimit: Number.isFinite(historyLimit) && historyLimit > 0 ? historyLimit : DEFAULT_SETTINGS.historyLimit,
     defaultProviders: defaultProviders.length ? defaultProviders : DEFAULT_SETTINGS.defaultProviders,
-    theme
+    theme,
+    providerUrls
   };
+}
+
+function escapeAttr(str) {
+  return (str || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function getProviderInitUrl(providerId) {
+  const custom = settings.providerUrls?.[providerId];
+  return (custom && custom.trim()) ? custom.trim() : (PROVIDER_HOME_URLS[providerId] || "");
+}
+
+function getProviderInitUrls(providerIds) {
+  const urls = {};
+  (providerIds || []).forEach((id) => {
+    urls[id] = getProviderInitUrl(id);
+  });
+  return urls;
 }
 
 function applyTheme(theme) {
@@ -192,7 +220,8 @@ function renderOpenChats(tabs) {
 }
 
 function getSelectedProviders() {
-  return settings.defaultProviders.slice();
+  const disabled = getActiveConversationDisabledProviders();
+  return settings.defaultProviders.filter((id) => !disabled.includes(id));
 }
 
 function getSelectedProvidersWithFallback() {
@@ -261,13 +290,14 @@ function getOpenTabsSignature(tabs) {
 
 function updateSendButtonState(openTabs) {
   if (!sendButton) return;
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const disabled = getActiveConversationDisabledProviders();
+  const enabledProviders = (settings.defaultProviders || PROVIDERS.map(p => p.id))
+    .filter((id) => !disabled.includes(id));
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
     .map(tab => tab.providerId)
     .filter(Boolean);
-  // Disable send button if none of the configured LLMs are in front
-  const hasAnyConfiguredLlmFront = defaultProviders.some(id => frontProviderIds.includes(id));
+  const hasAnyConfiguredLlmFront = enabledProviders.some(id => frontProviderIds.includes(id));
   sendButton.disabled = !hasAnyConfiguredLlmFront;
   sendButton.title = hasAnyConfiguredLlmFront
     ? "Send to all (Ctrl/Cmd+Enter)"
@@ -276,20 +306,20 @@ function updateSendButtonState(openTabs) {
 
 function renderLlmMenuDropdown(openTabs) {
   const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const chatDisabled = getActiveConversationDisabledProviders();
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
     .map(tab => tab.providerId)
     .filter(Boolean);
-  
-  // Count open LLMs among configured providers
-  const openCount = defaultProviders.filter(id => frontProviderIds.includes(id)).length;
-  
-  // Update count label
+
+  const openCount = defaultProviders
+    .filter(id => !chatDisabled.includes(id))
+    .filter(id => frontProviderIds.includes(id)).length;
+
   if (llmCountLabel) {
     llmCountLabel.textContent = `${openCount} LLMs`;
   }
-  
-  // Update button style based on open count
+
   if (llmDropdownButton) {
     if (openCount > 0) {
       llmDropdownButton.classList.add("has-open-llms");
@@ -297,30 +327,85 @@ function renderLlmMenuDropdown(openTabs) {
       llmDropdownButton.classList.remove("has-open-llms");
     }
   }
-  
-  // Render status list in menu
+
   if (llmMenuStatusList) {
     llmMenuStatusList.innerHTML = "";
+    const activeConv = getActiveConversation();
+    const manualUrls = activeConv?.manualUrlsByProvider || {};
+
     defaultProviders.forEach((providerId) => {
       const provider = PROVIDERS.find(p => p.id === providerId);
       if (!provider) return;
-      
+
+      const isDisabledForChat = chatDisabled.includes(providerId);
       const providerTabs = (openTabs || []).filter(tab => tab.providerId === providerId);
       const isOpen = providerTabs.length > 0;
       const isFront = providerTabs.some(tab => tab.windowState !== "minimized");
+      const hasManualUrl = Boolean(manualUrls[providerId]);
       const item = document.createElement("li");
-      if (isOpen) {
+      if (isDisabledForChat) {
+        item.className = "llm-menu-item llm-menu-item--disabled";
+      } else if (isOpen) {
         item.className = `llm-menu-item ${isFront ? "llm-menu-item--open" : "llm-menu-item--idle"}`;
       } else {
         item.className = "llm-menu-item llm-menu-item--closed";
       }
+      const stateLabel = isDisabledForChat ? "off" : (isOpen ? (isFront ? "open" : "N/A") : "closed");
+      const liveUrl = (providerTabs[0] || {}).url || "";
+      const pending = pendingUrlChanges[providerId] || null;
+      const chatControls = activeConversationId ? `
+        <span class="llm-menu-item-chips">
+          <button class="llm-menu-chip ${isDisabledForChat ? "llm-menu-chip--off" : ""}"
+                  data-action="toggle-chat-provider" data-provider-id="${providerId}"
+                  title="${isDisabledForChat ? "Enable for this chat" : "Disable for this chat"}">
+            ${isDisabledForChat ? "off" : "on"}
+          </button>
+          <button class="llm-menu-chip ${hasManualUrl ? "llm-menu-chip--set" : ""}"
+                  data-action="edit-chat-url-menu" data-provider-id="${providerId}"
+                  data-provider-name="${escapeAttr(provider.name)}"
+                  data-current-url="${escapeAttr(manualUrls[providerId] || liveUrl)}"
+                  data-default-url="${escapeAttr(PROVIDER_HOME_URLS[providerId] || "")}"
+                  title="${hasManualUrl ? "Edit URL" : "Set URL"}">
+            URL${hasManualUrl ? " ✓" : ""}
+          </button>
+        </span>
+      ` : "";
+      const pendingBlock = pending ? `
+        <div class="llm-menu-url-changed">
+          <p class="llm-menu-url-changed__title">URL changed</p>
+          <div class="llm-menu-url-changed__row">
+            <span class="llm-menu-url-changed__key">Stored</span>
+            <span class="llm-menu-url-changed__val" title="${escapeAttr(pending.storedUrl)}">${truncateText(pending.storedUrl, 32)}</span>
+          </div>
+          <div class="llm-menu-url-changed__row">
+            <span class="llm-menu-url-changed__key">New</span>
+            <span class="llm-menu-url-changed__val llm-menu-url-changed__val--new" title="${escapeAttr(pending.newUrl)}">${truncateText(pending.newUrl, 32)}</span>
+          </div>
+          <div class="llm-menu-url-changed__actions">
+            <button class="llm-menu-chip llm-menu-chip--set" data-action="accept-url-change" data-provider-id="${providerId}">Update</button>
+            <button class="llm-menu-chip" data-action="dismiss-url-change" data-provider-id="${providerId}">Keep stored</button>
+          </div>
+        </div>
+      ` : "";
+      const displayUrl = liveUrl || manualUrls[providerId] || "";
+      const urlSubtitle = displayUrl
+        ? `<span class="llm-menu-item-url${pending ? " llm-menu-item-url--changed" : ""}" title="${escapeAttr(displayUrl)}">${truncateText(displayUrl, 35)}</span>`
+        : "";
       item.innerHTML = `
         <span class="llm-menu-item-label">
           <span class="llm-menu-dot"></span>
-          ${provider.name}
+          <span class="llm-menu-item-name">
+            ${provider.name}
+            ${urlSubtitle}
+          </span>
         </span>
-        <span class="llm-menu-item-state">${isOpen ? (isFront ? "open" : "N/A") : "closed"}</span>
+        <span class="llm-menu-item-right">
+          <span class="llm-menu-item-state">${stateLabel}</span>
+          ${chatControls}
+        </span>
+        ${pendingBlock}
       `;
+      if (pending) item.classList.add("llm-menu-item--url-changed");
       llmMenuStatusList.appendChild(item);
     });
   }
@@ -333,6 +418,7 @@ async function pollLlmStatus() {
     const currentSignature = getOpenTabsSignature(openTabs);
     
     // Always update send button state and LLM menu
+    detectPendingUrlChanges(openTabs);
     updateSendButtonState(openTabs);
     renderLlmMenuDropdown(openTabs);
     if (llmStatusContainer && !llmStatusContainer.classList.contains("is-hidden")) {
@@ -418,6 +504,9 @@ function normalizeConversation(conversation) {
     createdAt: safe.createdAt || 0,
     lastUpdated: safe.lastUpdated || safe.createdAt || 0,
     linksByProvider: safe.linksByProvider || {},
+    manualUrlsByProvider: safe.manualUrlsByProvider || {},
+    disabledProviders: Array.isArray(safe.disabledProviders) ? safe.disabledProviders : [],
+    urlHistory: Array.isArray(safe.urlHistory) ? safe.urlHistory : [],
     messages: Array.isArray(safe.messages) ? safe.messages : []
   };
 }
@@ -627,51 +716,84 @@ function renderEmptyConversationList(target, message) {
 function renderLlmStatusInDetail(openTabs) {
   if (!llmStatusList) return;
   llmStatusList.innerHTML = "";
-  
+
   const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
-  
-  // Show status for each default provider
+  const activeConv = getActiveConversation();
+  const chatDisabled = activeConv?.disabledProviders || [];
+  const manualUrls = activeConv?.manualUrlsByProvider || {};
+  const hasActiveConv = Boolean(activeConversationId);
+
   defaultProviders.forEach((providerId) => {
     const provider = PROVIDERS.find(p => p.id === providerId);
     if (!provider) return;
-    
+
     const providerTabs = openTabs.filter(tab => tab.providerId === providerId);
     const isOpen = providerTabs.length > 0;
     const frontTab = providerTabs.find(tab => tab.windowState !== "minimized");
     const isFront = Boolean(frontTab);
-    
-    const item = document.createElement("li");
-    if (isOpen) {
-      item.className = `status__item ${isFront ? "status__item--on" : "status__item--idle"}`;
-    } else {
-      item.className = "status__item status__item--closed";
-    }
-    
-    if (isOpen && isFront) {
-      item.innerHTML = `
-        <span class="status__label">
-          <span class="status__dot"></span>
-          ${provider.name}
-        </span>
-        <span class="status__state">${frontTab?.title || "open"}</span>
-      `;
+    const isDisabled = chatDisabled.includes(providerId);
+    const manualUrl = manualUrls[providerId] || "";
+
+    let statusClass = "status__item--closed";
+    if (isDisabled) {
+      statusClass = "status__item--chat-disabled";
+    } else if (isOpen && isFront) {
+      statusClass = "status__item--on";
     } else if (isOpen) {
-      item.innerHTML = `
-        <span class="status__label">
-          <span class="status__dot"></span>
-          ${provider.name}
-        </span>
-        <span class="status__state">N/A</span>
-      `;
-    } else {
-      item.innerHTML = `
-        <span class="status__label">
-          <span class="status__dot"></span>
-          ${provider.name}
-        </span>
-        <span class="status__state">not open</span>
-      `;
+      statusClass = "status__item--idle";
     }
+
+    const stateLabel = isDisabled ? "off"
+      : isOpen && isFront ? (frontTab?.title || "open")
+      : isOpen ? "N/A"
+      : "not open";
+
+    const actionsHtml = hasActiveConv ? `
+      <details class="menu" data-provider-id="${providerId}">
+        <summary class="menu__button" aria-label="${provider.name} actions">...</summary>
+        <div class="menu__panel">
+          <button class="menu__item" data-action="toggle-chat-provider" data-provider-id="${providerId}">
+            ${isDisabled ? "Enable for this chat" : "Disable for this chat"}
+          </button>
+          <button class="menu__item" data-action="edit-chat-url" data-provider-id="${providerId}">
+            ${manualUrl ? "Edit URL" : "Set URL"}
+          </button>
+        </div>
+      </details>
+    ` : "";
+
+    const liveUrl = (frontTab || providerTabs[0] || {}).url || "";
+    const displayUrl = liveUrl || manualUrl;
+    const urlHint = displayUrl
+      ? `<span class="status__url" title="${displayUrl}">${truncateText(displayUrl, 40)}</span>`
+      : "";
+    const defaultUrl = PROVIDER_HOME_URLS[providerId] || "";
+
+    const item = document.createElement("li");
+    item.className = `status__item ${statusClass}`;
+    item.dataset.providerId = providerId;
+    item.innerHTML = `
+      <span class="status__label">
+        <span class="status__dot"></span>
+        <span class="status__label-name">
+          ${provider.name}
+          ${urlHint}
+        </span>
+      </span>
+      <span class="status__actions">
+        <span class="status__state">${stateLabel}</span>
+        ${actionsHtml}
+      </span>
+      <div class="provider-url-form is-hidden" data-provider-id="${providerId}">
+        <p class="provider-url-form__label">Override URL for this chat</p>
+        <input class="form__input" type="url" placeholder="" value="${manualUrl || liveUrl}" data-url-input data-provider-id="${providerId}" />
+        <div class="provider-url-form__actions">
+          <button class="accent" data-action="save-chat-url" data-provider-id="${providerId}">Save</button>
+          <button class="outline" data-action="cancel-chat-url" data-provider-id="${providerId}">Cancel</button>
+          ${manualUrl ? `<button class="ghost" data-action="clear-chat-url" data-provider-id="${providerId}">Reset</button>` : ""}
+        </div>
+      </div>
+    `;
     llmStatusList.appendChild(item);
   });
 }
@@ -765,7 +887,8 @@ function renderConversationDetail(conversation, openTabs = []) {
   }
 
   const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
-  
+  const urlHistory = Array.isArray(conversation.urlHistory) ? conversation.urlHistory : [];
+
   if (!messages.length) {
     // No messages yet - show LLM status instead
     if (messagesContainer) {
@@ -793,46 +916,73 @@ function renderConversationDetail(conversation, openTabs = []) {
       llmStatusContainer.classList.add("is-hidden");
     }
     conversationMessages.innerHTML = "";
-    messages.forEach((message, index) => {
-      const item = document.createElement("li");
-      item.className = "conversation__item";
-      const label = document.createElement("span");
-      label.className = "conversation__item-label";
-      const count = document.createElement("strong");
-      count.textContent = `#${index + 1}`;
-      label.appendChild(count);
-      label.append(` ${truncateText(message.prompt, 80)}`);
-      
-      const actions = document.createElement("span");
-      actions.className = "conversation__item-actions";
-      
-      const copyButton = document.createElement("button");
-      copyButton.className = "copy-button";
-      copyButton.type = "button";
-      copyButton.title = "Copy message";
-      copyButton.innerHTML = `<svg class="copy-icon" viewBox="0 0 448 512" aria-hidden="true"><path d="M384 336H192c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16l140.1 0L400 115.9V320c0 8.8-7.2 16-16 16zM192 384H384c35.3 0 64-28.7 64-64V115.9c0-12.7-5.1-24.9-14.1-33.9L366.1 14.1c-9-9-21.2-14.1-33.9-14.1H192c-35.3 0-64 28.7-64 64V320c0 35.3 28.7 64 64 64zM64 128c-35.3 0-64 28.7-64 64V448c0 35.3 28.7 64 64 64H256c35.3 0 64-28.7 64-64V416H272v32c0 8.8-7.2 16-16 16H64c-8.8 0-16-7.2-16-16V192c0-8.8 7.2-16 16-16h32V128H64z"/></svg>`;
-      copyButton.dataset.prompt = message.prompt;
-      copyButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        navigator.clipboard.writeText(message.prompt).then(() => {
-          copyButton.classList.add("copied");
-          copyButton.innerHTML = `<svg class="copy-icon" viewBox="0 0 448 512" aria-hidden="true"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"/></svg>`;
-          setTimeout(() => {
-            copyButton.classList.remove("copied");
-            copyButton.innerHTML = `<svg class="copy-icon" viewBox="0 0 448 512" aria-hidden="true"><path d="M384 336H192c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16l140.1 0L400 115.9V320c0 8.8-7.2 16-16 16zM192 384H384c35.3 0 64-28.7 64-64V115.9c0-12.7-5.1-24.9-14.1-33.9L366.1 14.1c-9-9-21.2-14.1-33.9-14.1H192c-35.3 0-64 28.7-64 64V320c0 35.3 28.7 64 64 64zM64 128c-35.3 0-64 28.7-64 64V448c0 35.3 28.7 64 64 64H256c35.3 0 64-28.7 64-64V416H272v32c0 8.8-7.2 16-16 16H64c-8.8 0-16-7.2-16-16V192c0-8.8 7.2-16 16-16h32V128H64z"/></svg>`;
-          }, 1500);
+
+    // Build timeline: messages + URL history entries, sorted by timestamp
+    const timelineItems = [
+      ...messages.map((m) => ({ kind: "message", data: m, ts: m.createdAt || 0 })),
+      ...urlHistory.map((h) => ({ kind: "url-change", data: h, ts: h.recordedAt || 0 }))
+    ].sort((a, b) => a.ts - b.ts);
+
+    let msgIndex = 0;
+    timelineItems.forEach((entry) => {
+      if (entry.kind === "message") {
+        const message = entry.data;
+        msgIndex += 1;
+        const item = document.createElement("li");
+        item.className = "conversation__item";
+        const label = document.createElement("span");
+        label.className = "conversation__item-label";
+        const count = document.createElement("strong");
+        count.textContent = `#${msgIndex}`;
+        label.appendChild(count);
+        label.append(` ${truncateText(message.prompt, 80)}`);
+
+        const actions = document.createElement("span");
+        actions.className = "conversation__item-actions";
+
+        const copyButton = document.createElement("button");
+        copyButton.className = "copy-button";
+        copyButton.type = "button";
+        copyButton.title = "Copy message";
+        copyButton.innerHTML = `<svg class="copy-icon" viewBox="0 0 448 512" aria-hidden="true"><path d="M384 336H192c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16l140.1 0L400 115.9V320c0 8.8-7.2 16-16 16zM192 384H384c35.3 0 64-28.7 64-64V115.9c0-12.7-5.1-24.9-14.1-33.9L366.1 14.1c-9-9-21.2-14.1-33.9-14.1H192c-35.3 0-64 28.7-64 64V320c0 35.3 28.7 64 64 64zM64 128c-35.3 0-64 28.7-64 64V448c0 35.3 28.7 64 64 64H256c35.3 0 64-28.7 64-64V416H272v32c0 8.8-7.2 16-16 16H64c-8.8 0-16-7.2-16-16V192c0-8.8 7.2-16 16-16h32V128H64z"/></svg>`;
+        copyButton.dataset.prompt = message.prompt;
+        copyButton.addEventListener("click", (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(message.prompt).then(() => {
+            copyButton.classList.add("copied");
+            copyButton.innerHTML = `<svg class="copy-icon" viewBox="0 0 448 512" aria-hidden="true"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"/></svg>`;
+            setTimeout(() => {
+              copyButton.classList.remove("copied");
+              copyButton.innerHTML = `<svg class="copy-icon" viewBox="0 0 448 512" aria-hidden="true"><path d="M384 336H192c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16l140.1 0L400 115.9V320c0 8.8-7.2 16-16 16zM192 384H384c35.3 0 64-28.7 64-64V115.9c0-12.7-5.1-24.9-14.1-33.9L366.1 14.1c-9-9-21.2-14.1-33.9-14.1H192c-35.3 0-64 28.7-64 64V320c0 35.3 28.7 64 64 64zM64 128c-35.3 0-64 28.7-64 64V448c0 35.3 28.7 64 64 64H256c35.3 0 64-28.7 64-64V416H272v32c0 8.8-7.2 16-16 16H64c-8.8 0-16-7.2-16-16V192c0-8.8 7.2-16 16-16h32V128H64z"/></svg>`;
+            }, 1500);
+          });
         });
-      });
-      actions.appendChild(copyButton);
-      
-      const meta = document.createElement("span");
-      meta.className = "conversation__meta";
-      meta.textContent = formatTimestamp(message.createdAt);
-      actions.appendChild(meta);
-      
-      item.appendChild(label);
-      item.appendChild(actions);
-      conversationMessages.appendChild(item);
+        actions.appendChild(copyButton);
+
+        const meta = document.createElement("span");
+        meta.className = "conversation__meta";
+        meta.textContent = formatTimestamp(message.createdAt);
+        actions.appendChild(meta);
+
+        item.appendChild(label);
+        item.appendChild(actions);
+        conversationMessages.appendChild(item);
+      } else {
+        // URL change history entry
+        const h = entry.data;
+        const providerName = getProviderName(h.providerId);
+        const item = document.createElement("li");
+        item.className = "conversation__item conversation__item--url-change";
+        item.innerHTML = `
+          <span class="conversation__url-change-icon">↗</span>
+          <span class="conversation__url-change-body">
+            <span class="conversation__url-change-provider">${providerName}</span>
+            <a class="conversation__link conversation__url-change-url" href="${escapeAttr(h.url)}" title="${escapeAttr(h.url)}" target="_blank">${truncateText(h.url, 50)}</a>
+          </span>
+          <span class="conversation__meta">${formatTimestamp(h.recordedAt)}</span>
+        `;
+        conversationMessages.appendChild(item);
+      }
     });
     // Scroll to the last message at the bottom of conversation-detail
     setTimeout(() => {
@@ -868,12 +1018,105 @@ function getActiveConversation() {
   return cachedConversations.find((conversation) => conversation.id === activeConversationId) || null;
 }
 
+function getActiveConversationDisabledProviders() {
+  const conv = getActiveConversation();
+  return conv?.disabledProviders || [];
+}
+
+async function updateActiveConversation(updater) {
+  if (!activeConversationId) return;
+  const stored = await chrome.storage.local.get(["conversations"]);
+  const conversations = normalizeConversations(stored.conversations || []);
+  const nextConversations = conversations.map((conv) => {
+    if (conv.id !== activeConversationId) return conv;
+    return { ...conv, ...updater(conv), lastUpdated: Date.now() };
+  });
+  await chrome.storage.local.set({ conversations: nextConversations });
+  await refreshConversations();
+}
+
+async function saveConversationManualUrl(providerId, url) {
+  await updateActiveConversation((conv) => ({
+    manualUrlsByProvider: { ...(conv.manualUrlsByProvider || {}), [providerId]: url.trim() || null }
+  }));
+}
+
+async function toggleConversationProviderDisabled(providerId, disabled) {
+  await updateActiveConversation((conv) => {
+    const current = conv.disabledProviders || [];
+    const next = disabled
+      ? Array.from(new Set([...current, providerId]))
+      : current.filter((id) => id !== providerId);
+    return { disabledProviders: next };
+  });
+}
+
+// In-memory map of detected URL changes not yet acted on by the user
+let pendingUrlChanges = {};
+
+function getActiveUrlForProvider(conversation, providerId) {
+  if (!conversation) return null;
+  const manual = conversation.manualUrlsByProvider?.[providerId];
+  if (manual) return manual;
+  const links = normalizeLinks(conversation.linksByProvider?.[providerId] || []);
+  const nonHome = links.filter((url) => !isHomeUrl(providerId, url));
+  return nonHome[0] || null;
+}
+
+function detectPendingUrlChanges(openTabs) {
+  const conv = getActiveConversation();
+  if (!conv) {
+    pendingUrlChanges = {};
+    return;
+  }
+  const defaultProviders = settings.defaultProviders || PROVIDERS.map((p) => p.id);
+  defaultProviders.forEach((providerId) => {
+    const storedUrl = getActiveUrlForProvider(conv, providerId);
+    if (!storedUrl) {
+      delete pendingUrlChanges[providerId];
+      return;
+    }
+    const tab = openTabs.find((t) => t.providerId === providerId);
+    const liveUrl = tab?.url || "";
+    if (!liveUrl || isHomeUrl(providerId, liveUrl)) {
+      delete pendingUrlChanges[providerId];
+      return;
+    }
+    if (liveUrl === storedUrl) {
+      delete pendingUrlChanges[providerId];
+      return;
+    }
+    if (!pendingUrlChanges[providerId] || pendingUrlChanges[providerId].newUrl !== liveUrl) {
+      pendingUrlChanges[providerId] = { storedUrl, newUrl: liveUrl };
+    }
+  });
+}
+
+async function acceptUrlChange(providerId) {
+  const pending = pendingUrlChanges[providerId];
+  if (!pending) return;
+  const { newUrl } = pending;
+  await updateActiveConversation((conv) => ({
+    manualUrlsByProvider: { ...(conv.manualUrlsByProvider || {}), [providerId]: newUrl },
+    urlHistory: [
+      ...(conv.urlHistory || []),
+      { providerId, url: newUrl, recordedAt: Date.now() }
+    ]
+  }));
+  delete pendingUrlChanges[providerId];
+}
+
+function dismissUrlChange(providerId) {
+  delete pendingUrlChanges[providerId];
+}
+
 function getConversationProviderIds(conversation, providerIds) {
   const requested = Array.isArray(providerIds) && providerIds.length
     ? providerIds
     : settings.defaultProviders.slice();
   const linked = conversation?.linksByProvider ? Object.keys(conversation.linksByProvider) : [];
-  return getOrderedProviders(requested.concat(linked));
+  const disabled = conversation?.disabledProviders || [];
+  return getOrderedProviders(requested.concat(linked)).filter((id) => !disabled.includes(id));
 }
 
 function isConversationOpenForProviders(openTabs, conversation, providerIds) {
@@ -1233,6 +1476,7 @@ function collectConversationUrls(conversation) {
 
 function collectConversationUrlsWithFallback(conversation, providerIds) {
   const linksByProvider = conversation?.linksByProvider || {};
+  const manualUrlsByProvider = conversation?.manualUrlsByProvider || {};
   const explicitProviders = Array.isArray(providerIds) && providerIds.length ? providerIds : null;
   const selectedProviders = explicitProviders
     ? explicitProviders
@@ -1244,6 +1488,14 @@ function collectConversationUrlsWithFallback(conversation, providerIds) {
   const urls = [];
 
   orderedProviders.forEach((providerId) => {
+    // Manual URL takes priority over auto-detected links
+    const manualUrl = manualUrlsByProvider[providerId];
+    if (typeof manualUrl === "string" && manualUrl.trim()) {
+      const url = manualUrl.trim();
+      if (!urls.includes(url)) urls.push(url);
+      return;
+    }
+
     const links = linksByProvider[providerId];
     const list = Array.isArray(links) ? links : links ? [links] : [];
     const normalized = list
@@ -1262,7 +1514,7 @@ function collectConversationUrlsWithFallback(conversation, providerIds) {
     }
 
     if (fallbackProviders.includes(providerId)) {
-      const fallbackUrl = PROVIDER_HOME_URLS[providerId];
+      const fallbackUrl = getProviderInitUrl(providerId);
       if (fallbackUrl && !urls.includes(fallbackUrl)) {
         urls.push(fallbackUrl);
       }
@@ -1378,6 +1630,49 @@ async function init() {
     });
   }
 
+  const providerInitUrlsContainer = document.getElementById("provider-init-urls");
+  if (providerInitUrlsContainer) {
+    providerInitUrlsContainer.innerHTML = "";
+    PROVIDERS.forEach((provider) => {
+      const defaultUrl = PROVIDER_HOME_URLS[provider.id] || "";
+      const currentUrl = settings.providerUrls?.[provider.id] || "";
+
+      const row = document.createElement("div");
+      row.className = "provider-url-row";
+
+      const label = document.createElement("label");
+      label.className = "provider-url-row__label";
+      label.textContent = provider.name;
+
+      const inputWrapper = document.createElement("div");
+      inputWrapper.className = "provider-url-row__input-wrap";
+
+      const input = document.createElement("input");
+      input.type = "url";
+      input.className = "form__input";
+      input.placeholder = defaultUrl;
+      input.value = currentUrl;
+      input.dataset.providerId = provider.id;
+      input.title = currentUrl ? `Current: ${currentUrl}` : `Default: ${defaultUrl}`;
+
+      const resetBtn = document.createElement("button");
+      resetBtn.type = "button";
+      resetBtn.className = "provider-url-row__reset";
+      resetBtn.textContent = "Reset";
+      resetBtn.title = `Reset to default: ${defaultUrl}`;
+      resetBtn.addEventListener("click", () => {
+        input.value = "";
+        input.title = `Default: ${defaultUrl}`;
+      });
+
+      inputWrapper.appendChild(input);
+      inputWrapper.appendChild(resetBtn);
+      row.appendChild(label);
+      row.appendChild(inputWrapper);
+      providerInitUrlsContainer.appendChild(row);
+    });
+  }
+
   const openSettings = () => {
     settingsModal?.classList.remove("is-hidden");
     const menu = document.getElementById("header-menu");
@@ -1462,18 +1757,25 @@ async function init() {
     settingsSaveButton.addEventListener("click", async () => {
       const historyLimit = Number(historyLimitInput?.value || DEFAULT_SETTINGS.historyLimit);
       const defaults = [];
-      defaultProvidersContainer?.querySelectorAll("input").forEach((input) => {
+      defaultProvidersContainer?.querySelectorAll("input[data-provider-id]").forEach((input) => {
         if (input.checked) defaults.push(input.dataset.providerId);
       });
-      
+
+      const providerUrls = {};
+      providerInitUrlsContainer?.querySelectorAll("input[data-provider-id]").forEach((input) => {
+        const url = input.value.trim();
+        if (url) providerUrls[input.dataset.providerId] = url;
+      });
+
       // Get selected theme
       const themeSelector = document.getElementById("theme-selector");
       const selectedTheme = themeSelector?.querySelector("input:checked")?.value || "system";
-      
+
       settings = normalizeSettings({
         historyLimit,
         defaultProviders: defaults,
-        theme: selectedTheme
+        theme: selectedTheme,
+        providerUrls
       });
       
       // Apply theme immediately
@@ -1503,6 +1805,177 @@ async function init() {
   });
 
   document.getElementById("refresh-status").addEventListener("click", refreshStatus);
+
+  if (llmStatusList) {
+    llmStatusList.addEventListener("click", async (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const actionBtn = target.closest("[data-action]");
+      if (!actionBtn) return;
+      const action = actionBtn.dataset.action;
+      const providerId = actionBtn.dataset.providerId;
+      if (!providerId) return;
+
+      if (action === "toggle-chat-provider") {
+        const conv = getActiveConversation();
+        const isDisabled = (conv?.disabledProviders || []).includes(providerId);
+        await toggleConversationProviderDisabled(providerId, !isDisabled);
+        const menu = actionBtn.closest("details.menu");
+        if (menu) menu.open = false;
+        return;
+      }
+
+      if (action === "edit-chat-url") {
+        const li = actionBtn.closest("li.status__item");
+        const form = li?.querySelector(`.provider-url-form[data-provider-id="${providerId}"]`);
+        if (!form) return;
+        li.classList.add("status__item--expanded");
+        form.classList.remove("is-hidden");
+        form.querySelector("input[data-url-input]")?.focus();
+        const menu = actionBtn.closest("details.menu");
+        if (menu) menu.open = false;
+        return;
+      }
+
+      if (action === "save-chat-url") {
+        const li = actionBtn.closest("li.status__item");
+        const form = li?.querySelector(`.provider-url-form[data-provider-id="${providerId}"]`);
+        const input = form?.querySelector("input[data-url-input]");
+        const url = input?.value || "";
+        await saveConversationManualUrl(providerId, url);
+        li?.classList.remove("status__item--expanded");
+        form?.classList.add("is-hidden");
+        return;
+      }
+
+      if (action === "cancel-chat-url") {
+        const li = actionBtn.closest("li.status__item");
+        const form = li?.querySelector(`.provider-url-form[data-provider-id="${providerId}"]`);
+        li?.classList.remove("status__item--expanded");
+        form?.classList.add("is-hidden");
+        return;
+      }
+
+      if (action === "clear-chat-url") {
+        await saveConversationManualUrl(providerId, "");
+        return;
+      }
+    });
+
+    llmStatusList.addEventListener("keydown", async (event) => {
+      if (event.key !== "Enter") return;
+      const target = event.target;
+      if (!(target instanceof Element) || !target.matches("input[data-url-input]")) return;
+      const providerId = target.dataset.providerId;
+      if (!providerId) return;
+      const li = target.closest("li.status__item");
+      const form = target.closest(".provider-url-form");
+      await saveConversationManualUrl(providerId, target.value);
+      li?.classList.remove("status__item--expanded");
+      form?.classList.add("is-hidden");
+    });
+  }
+
+  // LLM menu per-provider controls (disable + URL)
+  const llmMenuUrlForm = document.getElementById("llm-menu-url-form");
+  const llmMenuUrlInput = document.getElementById("llm-menu-url-input");
+  const llmMenuUrlProviderName = document.getElementById("llm-menu-url-provider-name");
+  let llmMenuUrlCurrentProviderId = null;
+
+  const llmMenuUrlDefault = document.getElementById("llm-menu-url-default");
+
+  function openLlmMenuUrlForm(providerId, providerName, currentUrl, defaultUrl) {
+    llmMenuUrlCurrentProviderId = providerId;
+    if (llmMenuUrlProviderName) llmMenuUrlProviderName.textContent = providerName;
+    if (llmMenuUrlInput) {
+      llmMenuUrlInput.value = currentUrl || "";
+      llmMenuUrlInput.placeholder = "";
+    }
+    if (llmMenuUrlDefault) {
+      llmMenuUrlDefault.textContent = "";
+    }
+    llmMenuUrlForm?.classList.remove("is-hidden");
+    llmMenuUrlInput?.focus();
+  }
+
+  function closeLlmMenuUrlForm() {
+    llmMenuUrlCurrentProviderId = null;
+    llmMenuUrlForm?.classList.add("is-hidden");
+  }
+
+  if (llmMenuStatusList) {
+    llmMenuStatusList.addEventListener("click", async (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const actionBtn = target.closest("[data-action]");
+      if (!actionBtn) return;
+      const action = actionBtn.dataset.action;
+      const providerId = actionBtn.dataset.providerId;
+      if (!providerId) return;
+      event.stopPropagation();
+
+      if (action === "toggle-chat-provider") {
+        const conv = getActiveConversation();
+        const isDisabled = (conv?.disabledProviders || []).includes(providerId);
+        await toggleConversationProviderDisabled(providerId, !isDisabled);
+        return;
+      }
+
+      if (action === "accept-url-change") {
+        await acceptUrlChange(providerId);
+        return;
+      }
+
+      if (action === "dismiss-url-change") {
+        dismissUrlChange(providerId);
+        const tabsResponse = await chrome.runtime.sendMessage({ type: "list_tabs" }).catch(() => null);
+        const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
+        renderLlmMenuDropdown(openTabs);
+        return;
+      }
+
+      if (action === "edit-chat-url-menu") {
+        openLlmMenuUrlForm(
+          providerId,
+          actionBtn.dataset.providerName || providerId,
+          actionBtn.dataset.currentUrl || "",
+          actionBtn.dataset.defaultUrl || ""
+        );
+        return;
+      }
+    });
+  }
+
+  document.getElementById("llm-menu-url-save")?.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (!llmMenuUrlCurrentProviderId) return;
+    await saveConversationManualUrl(llmMenuUrlCurrentProviderId, llmMenuUrlInput?.value || "");
+    closeLlmMenuUrlForm();
+  });
+
+  document.getElementById("llm-menu-url-cancel")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeLlmMenuUrlForm();
+  });
+
+  document.getElementById("llm-menu-url-clear")?.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (!llmMenuUrlCurrentProviderId) return;
+    await saveConversationManualUrl(llmMenuUrlCurrentProviderId, "");
+    closeLlmMenuUrlForm();
+  });
+
+  llmMenuUrlInput?.addEventListener("keydown", async (event) => {
+    if (event.key === "Enter") {
+      event.stopPropagation();
+      if (!llmMenuUrlCurrentProviderId) return;
+      await saveConversationManualUrl(llmMenuUrlCurrentProviderId, llmMenuUrlInput.value);
+      closeLlmMenuUrlForm();
+    } else if (event.key === "Escape") {
+      closeLlmMenuUrlForm();
+    }
+  });
+
   openChatsList.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -1521,10 +1994,12 @@ async function init() {
 
   document.getElementById("new-chat").addEventListener("click", () => {
     startNewConversation();
+    const providers = getSelectedProviders();
     chrome.windows.getCurrent((win) => {
       chrome.runtime.sendMessage({
         type: "new_chat",
-        providers: getSelectedProviders(),
+        providers,
+        providerUrls: getProviderInitUrls(providers),
         controlWindowId: win?.id || null
       });
     });
