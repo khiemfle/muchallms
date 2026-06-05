@@ -559,7 +559,8 @@ function normalizeConversation(conversation) {
     manualUrlsByProvider: safe.manualUrlsByProvider || {},
     disabledProviders: Array.isArray(safe.disabledProviders) ? safe.disabledProviders : [],
     urlHistory: Array.isArray(safe.urlHistory) ? safe.urlHistory : [],
-    messages: Array.isArray(safe.messages) ? safe.messages : []
+    messages: Array.isArray(safe.messages) ? safe.messages : [],
+    selectedProviders: Array.isArray(safe.selectedProviders) && safe.selectedProviders.length ? safe.selectedProviders : null
   };
 }
 
@@ -1061,6 +1062,17 @@ async function refreshConversations() {
   applyHistorySearch();
   const active =
     cachedConversations.find((conversation) => conversation.id === activeConversationId) || null;
+
+  if (active) {
+    const providerSource = active.selectedProviders && active.selectedProviders.length
+      ? active.selectedProviders
+      : Object.keys(active.linksByProvider || {});
+    const convProviderIds = getOrderedProviders(providerSource);
+    if (convProviderIds.length > 0) {
+      activeSessionProviders = convProviderIds;
+    }
+  }
+
   const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
   renderConversationDetail(active, openTabs);
 }
@@ -1163,12 +1175,15 @@ function dismissUrlChange(providerId) {
 }
 
 function getConversationProviderIds(conversation, providerIds) {
-  const requested = Array.isArray(providerIds) && providerIds.length
-    ? providerIds
-    : settings.defaultProviders.slice();
-  const linked = conversation?.linksByProvider ? Object.keys(conversation.linksByProvider) : [];
   const disabled = conversation?.disabledProviders || [];
-  return getOrderedProviders(requested.concat(linked)).filter((id) => !disabled.includes(id));
+  if (Array.isArray(providerIds) && providerIds.length) {
+    return getOrderedProviders(providerIds).filter((id) => !disabled.includes(id));
+  }
+  const ownProviders = conversation?.selectedProviders && conversation.selectedProviders.length
+    ? conversation.selectedProviders
+    : Object.keys(conversation?.linksByProvider || {});
+  const base = ownProviders.length ? ownProviders : settings.defaultProviders.slice();
+  return getOrderedProviders(base).filter((id) => !disabled.includes(id));
 }
 
 function isConversationOpenForProviders(openTabs, conversation, providerIds) {
@@ -1373,7 +1388,7 @@ function scheduleConversationLinkCapture(conversationId, attempt = 0) {
   }, delayMs);
 }
 
-function createConversation(prompt, linksByProvider) {
+function createConversation(prompt, linksByProvider, selectedProviders) {
   const now = Date.now();
   const id = `conv_${now}_${Math.random().toString(16).slice(2, 6)}`;
   return {
@@ -1382,6 +1397,7 @@ function createConversation(prompt, linksByProvider) {
     createdAt: now,
     lastUpdated: now,
     linksByProvider: linksByProvider || {},
+    selectedProviders: selectedProviders && selectedProviders.length ? selectedProviders.slice() : null,
     messages: [
       {
         id: `msg_${now}_${Math.random().toString(16).slice(2, 6)}`,
@@ -1419,7 +1435,7 @@ async function recordConversationPrompt(prompt) {
 
   if (!existing) {
     const linksByProvider = await fetchLinksByProvider();
-    const conversation = createConversation(prompt, linksByProvider);
+    const conversation = createConversation(prompt, linksByProvider, getEffectiveProviders());
     nextConversations = [conversation].concat(conversations);
     nextActiveId = conversation.id;
     scheduleConversationLinkCapture(conversation.id);
