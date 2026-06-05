@@ -386,10 +386,12 @@ async function relayoutManagedWindows() {
 
 async function listProviderTabs() {
   const windows = await getAllWindows();
+  const managedIds = new Set(await getManagedWindowIds());
   const tabs = [];
 
   windows.forEach((win) => {
     if (win.type !== "popup") return;
+    if (!managedIds.has(win.id)) return;
     (win.tabs || []).forEach((tab) => {
       const url = tab.url || "";
       const provider = getProviderForUrl(url);
@@ -717,9 +719,11 @@ async function openConversationGrid({ urls, controlWindowId }) {
 
 async function broadcastPrompt({ prompt, providerIds, mode }) {
   const windows = await getAllWindows();
+  const managedIds = new Set(await getManagedWindowIds());
   const targets = [];
 
   windows.forEach((win) => {
+    if (!managedIds.has(win.id)) return;
     (win.tabs || []).forEach((tab) => {
       const provider = getProviderForUrl(tab.url || "");
       if (!provider) return;
