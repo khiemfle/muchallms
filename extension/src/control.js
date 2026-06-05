@@ -14,6 +14,17 @@ const PROVIDER_HOME_URLS = {
   perplexity: "https://www.perplexity.ai/"
 };
 
+const SUGGESTED_PROVIDERS = [
+  { name: "DeepSeek", url: "https://chat.deepseek.com/" },
+  { name: "Mistral", url: "https://chat.mistral.ai/" },
+  { name: "HuggingChat", url: "https://huggingface.co/chat" },
+  { name: "Copilot", url: "https://copilot.microsoft.com/" },
+  { name: "Ollama", url: "http://localhost:3000/" },
+  { name: "Poe", url: "https://poe.com/" },
+  { name: "Phind", url: "https://www.phind.com/" },
+  { name: "DuckDuckGo", url: "https://duckduckgo.com/chat" }
+];
+
 let allProviders = [...PROVIDERS];
 let cachedCustomProviders = [];
 
@@ -1658,6 +1669,62 @@ function renderCustomProviders() {
     item.appendChild(info);
     item.appendChild(deleteBtn);
     listContainer.appendChild(item);
+  });
+
+  renderProviderSuggestions();
+}
+
+function renderProviderSuggestions() {
+  const container = document.getElementById("provider-suggestions");
+  if (!container) return;
+  container.innerHTML = "";
+  
+  // Find which suggested providers are not yet added
+  const activeUrls = [
+    ...PROVIDERS.map(p => PROVIDER_HOME_URLS[p.id]),
+    ...cachedCustomProviders.map(p => p.url)
+  ].map(url => {
+    try {
+      return new URL(url).hostname.replace('www.', '').toLowerCase();
+    } catch(e) {
+      return '';
+    }
+  }).filter(Boolean);
+  
+  const toSuggest = SUGGESTED_PROVIDERS.filter(s => {
+    try {
+      const sHost = new URL(s.url).hostname.replace('www.', '').toLowerCase();
+      return !activeUrls.includes(sHost);
+    } catch(e) {
+      return true;
+    }
+  });
+  
+  if (toSuggest.length === 0) {
+    container.style.display = "none";
+    return;
+  }
+  container.style.display = "flex";
+  
+  const label = document.createElement("span");
+  label.className = "provider-suggestions__label";
+  label.textContent = "Suggestions:";
+  container.appendChild(label);
+  
+  toSuggest.forEach(s => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "provider-suggestion-chip";
+    chip.textContent = s.name;
+    chip.title = s.url;
+    chip.addEventListener("click", () => {
+      const newUrlInput = document.getElementById("new-provider-url");
+      if (newUrlInput) {
+        newUrlInput.value = s.url;
+        newUrlInput.focus();
+      }
+    });
+    container.appendChild(chip);
   });
 }
 

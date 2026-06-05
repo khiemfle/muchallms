@@ -275,17 +275,16 @@ async function closeProviderWindows(options = {}) {
 
   windows.forEach((win) => {
     if (win.type !== "popup") return;
-    // Only close managed windows, or unmanaged popup windows if includeUnmanaged is true
     const isManaged = managedIds.has(win.id);
-    if (!isManaged) {
-      // For unmanaged windows, only close if includeUnmanaged is true AND it's a popup window
-      if (!includeUnmanaged || win.type !== "popup") return;
-    }
-
     const hasControlTab = (win.tabs || []).some((tab) => isControlUrl(tab.url || ""));
     const hasProviderTab = (win.tabs || []).some((tab) => getProviderForUrl(tab.url || ""));
 
-    if (hasProviderTab && !hasControlTab) {
+    const shouldClose = (!hasControlTab) && (
+      isManaged ||
+      (includeUnmanaged && hasProviderTab)
+    );
+
+    if (shouldClose) {
       removals.push(
         new Promise((resolve) => {
           chrome.windows.remove(win.id, () => resolve());
@@ -821,7 +820,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === "close_all") {
-      await closeProviderWindows();
+      await closeProviderWindows({ includeUnmanaged: true });
       sendResponse({ ok: true });
       return;
     }

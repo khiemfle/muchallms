@@ -1411,3 +1411,39 @@ textarea {
   background: transparent;
   color: var(--ink);
 }
+
+/* Custom Provider Suggestions */
+.provider-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.provider-suggestions__label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.provider-suggestion-chip {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.provider-suggestion-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+

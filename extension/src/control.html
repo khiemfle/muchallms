@@ -146,22 +146,23 @@
               </label>
             </div>
 
+            <p class="form__label">Data management</p>
+            <div class="data-actions" style="display: flex; gap: 8px; margin-bottom: 16px;">
+              <button class="outline" id="export-data" type="button" style="flex: 1;">Export Data</button>
+              <button class="outline" id="import-data-trigger" type="button" style="flex: 1;">Import Data</button>
+              <input type="file" id="import-file" accept=".json" style="display: none;" />
+            </div>
+
             <p class="form__label">Custom Providers</p>
             <div class="custom-providers-section" style="margin-bottom: 16px;">
               <div class="form__row" style="display: flex; gap: 8px; margin-bottom: 8px;">
                 <input class="form__input" id="new-provider-url" type="url" placeholder="https://chat.deepseek.com/" style="flex: 1;" />
                 <button class="accent" id="add-provider-btn" type="button" style="padding: 8px 16px;">Add</button>
               </div>
+              <div class="provider-suggestions" id="provider-suggestions"></div>
               <ul class="custom-providers-list" id="custom-providers-list" style="list-style: none; padding: 0; margin: 0; display: grid; gap: 6px;">
                 <!-- Dynamically populated custom providers -->
               </ul>
-            </div>
-
-            <p class="form__label">Data management</p>
-            <div class="data-actions" style="display: flex; gap: 8px; margin-bottom: 16px;">
-              <button class="outline" id="export-data" type="button" style="flex: 1;">Export Data</button>
-              <button class="outline" id="import-data-trigger" type="button" style="flex: 1;">Import Data</button>
-              <input type="file" id="import-file" accept=".json" style="display: none;" />
             </div>
 
 
