@@ -14,6 +14,49 @@ const PROVIDER_HOME_URLS = {
   perplexity: "https://www.perplexity.ai/"
 };
 
+const SUGGESTED_PROVIDERS = [
+  { name: "DeepSeek", url: "https://chat.deepseek.com/" },
+  { name: "Mistral", url: "https://chat.mistral.ai/" },
+  { name: "HuggingChat", url: "https://huggingface.co/chat" },
+  { name: "Copilot", url: "https://copilot.microsoft.com/" },
+  { name: "Ollama", url: "http://localhost:3000/" },
+  { name: "Poe", url: "https://poe.com/" },
+  { name: "Phind", url: "https://www.phind.com/" },
+  { name: "DuckDuckGo", url: "https://duckduckgo.com/chat" },
+  { name: "Reddit Answers", url: "https://www.reddit.com/answers/" }
+];
+
+let allProviders = [...PROVIDERS];
+let cachedCustomProviders = [];
+
+function updateAllProvidersList(customProviders) {
+  cachedCustomProviders = customProviders || [];
+  allProviders = [...PROVIDERS];
+  cachedCustomProviders.forEach((p) => {
+    if (!allProviders.some(x => x.id === p.id)) {
+      allProviders.push({ id: p.id, name: p.name });
+    }
+  });
+}
+
+function getProviderDefaultUrl(providerId) {
+  return PROVIDER_HOME_URLS[providerId] || (cachedCustomProviders.find(p => p.id === providerId)?.url || "");
+}
+
+function extractMainDomain(urlString) {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname;
+    const parts = hostname.split('.');
+    const subdomainsToIgnore = new Set(['www', 'chat', 'app', 'play', 'beta', 'dev', 'mail', 'docs']);
+    const filteredParts = parts.filter(p => !subdomainsToIgnore.has(p.toLowerCase()));
+    const mainPart = filteredParts.length >= 2 ? filteredParts[0] : parts[0];
+    return mainPart.charAt(0).toUpperCase() + mainPart.slice(1);
+  } catch (e) {
+    return "";
+  }
+}
+
 const STORAGE_KEYS = [
   "providerPrefs",
   "lastPrompt",
@@ -70,6 +113,11 @@ const llmDropdownButton = document.querySelector(".llm-dropdown-button");
 const openLlmsMenuButton = document.getElementById("open-llms-menu-button");
 const closeAllMenuButton = document.getElementById("close-all-menu-button");
 
+let chatTemplates = [];
+const templatesModal = document.getElementById("templates-modal");
+const templatesBackdrop = document.getElementById("templates-backdrop");
+const closeTemplatesButton = document.getElementById("close-templates");
+
 const DEFAULT_SETTINGS = {
   historyLimit: 50,
   defaultProviders: PROVIDERS.map((provider) => provider.id),
@@ -101,6 +149,7 @@ let settings = { ...DEFAULT_SETTINGS };
 let llmStatusPollingInterval = null;
 let lastOpenTabsSignature = "";
 let historySearchState = { query: "", mode: "contains", regexError: "" };
+let activeSessionProviders = null;
 
 const VALID_THEMES = ["system", "light", "dark"];
 
@@ -108,12 +157,12 @@ function normalizeSettings(value) {
   if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS };
   const historyLimit = Number(value.historyLimit);
   const defaultProviders = Array.isArray(value.defaultProviders)
-    ? value.defaultProviders.filter((id) => PROVIDERS.some((provider) => provider.id === id))
+    ? value.defaultProviders.filter((id) => allProviders.some((provider) => provider.id === id))
     : DEFAULT_SETTINGS.defaultProviders;
   const theme = VALID_THEMES.includes(value.theme) ? value.theme : DEFAULT_SETTINGS.theme;
   const providerUrls = {};
   if (value.providerUrls && typeof value.providerUrls === "object") {
-    PROVIDERS.forEach((provider) => {
+    allProviders.forEach((provider) => {
       const url = value.providerUrls[provider.id];
       if (typeof url === "string" && url.trim()) {
         providerUrls[provider.id] = url.trim();
@@ -134,7 +183,7 @@ function escapeAttr(str) {
 
 function getProviderInitUrl(providerId) {
   const custom = settings.providerUrls?.[providerId];
-  return (custom && custom.trim()) ? custom.trim() : (PROVIDER_HOME_URLS[providerId] || "");
+  return (custom && custom.trim()) ? custom.trim() : (getProviderDefaultUrl(providerId) || "");
 }
 
 function getProviderInitUrls(providerIds) {
@@ -158,7 +207,7 @@ function applyTheme(theme) {
 
 function buildProviderPrefs(defaultProviders) {
   const prefs = {};
-  PROVIDERS.forEach((provider) => {
+  allProviders.forEach((provider) => {
     prefs[provider.id] = defaultProviders.includes(provider.id);
   });
   return prefs;
@@ -167,7 +216,7 @@ function buildProviderPrefs(defaultProviders) {
 function renderStatus(providerStatus) {
   if (!statusList) return;
   statusList.innerHTML = "";
-  PROVIDERS.forEach((provider) => {
+  allProviders.forEach((provider) => {
     const isOn = Boolean(providerStatus[provider.id]);
     const item = document.createElement("li");
     item.className = `status__item ${isOn ? "status__item--on" : ""}`;
@@ -219,20 +268,24 @@ function renderOpenChats(tabs) {
   });
 }
 
+function getEffectiveProviders() {
+  return activeSessionProviders || settings.defaultProviders || allProviders.map(p => p.id);
+}
+
 function getSelectedProviders() {
   const disabled = getActiveConversationDisabledProviders();
-  return settings.defaultProviders.filter((id) => !disabled.includes(id));
+  return getEffectiveProviders().filter((id) => !disabled.includes(id));
 }
 
 function getSelectedProvidersWithFallback() {
   const selected = getSelectedProviders();
   if (selected.length) return selected;
-  return settings.defaultProviders.slice();
+  return getEffectiveProviders().slice();
 }
 
 function getOrderedProviders(providerIds) {
   const unique = Array.from(new Set((providerIds || []).filter(Boolean)));
-  const ordered = PROVIDERS.map((provider) => provider.id).filter((id) => unique.includes(id));
+  const ordered = allProviders.map((provider) => provider.id).filter((id) => unique.includes(id));
   unique.forEach((id) => {
     if (!ordered.includes(id)) {
       ordered.push(id);
@@ -291,8 +344,7 @@ function getOpenTabsSignature(tabs) {
 function updateSendButtonState(openTabs) {
   if (!sendButton) return;
   const disabled = getActiveConversationDisabledProviders();
-  const enabledProviders = (settings.defaultProviders || PROVIDERS.map(p => p.id))
-    .filter((id) => !disabled.includes(id));
+  const enabledProviders = getEffectiveProviders().filter((id) => !disabled.includes(id));
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
     .map(tab => tab.providerId)
@@ -305,7 +357,7 @@ function updateSendButtonState(openTabs) {
 }
 
 function renderLlmMenuDropdown(openTabs) {
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const defaultProviders = getEffectiveProviders();
   const chatDisabled = getActiveConversationDisabledProviders();
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
@@ -334,7 +386,7 @@ function renderLlmMenuDropdown(openTabs) {
     const manualUrls = activeConv?.manualUrlsByProvider || {};
 
     defaultProviders.forEach((providerId) => {
-      const provider = PROVIDERS.find(p => p.id === providerId);
+      const provider = allProviders.find(p => p.id === providerId);
       if (!provider) return;
 
       const isDisabledForChat = chatDisabled.includes(providerId);
@@ -364,7 +416,7 @@ function renderLlmMenuDropdown(openTabs) {
                   data-action="edit-chat-url-menu" data-provider-id="${providerId}"
                   data-provider-name="${escapeAttr(provider.name)}"
                   data-current-url="${escapeAttr(manualUrls[providerId] || liveUrl)}"
-                  data-default-url="${escapeAttr(PROVIDER_HOME_URLS[providerId] || "")}"
+                  data-default-url="${escapeAttr(getProviderDefaultUrl(providerId))}"
                   title="${hasManualUrl ? "Edit URL" : "Set URL"}">
             URL${hasManualUrl ? " ✓" : ""}
           </button>
@@ -425,7 +477,7 @@ async function pollLlmStatus() {
       renderLlmStatusInDetail(openTabs);
       const actionButton = llmStatusContainer.querySelector(".llm-status-action");
       if (actionButton) {
-        const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+        const defaultProviders = getEffectiveProviders();
         const frontProviderIds = openTabs
           .filter(tab => tab.windowState !== "minimized")
           .map(tab => tab.providerId)
@@ -483,7 +535,7 @@ function truncateText(text, maxLength) {
 }
 
 function getProviderName(providerId) {
-  const provider = PROVIDERS.find((entry) => entry.id === providerId);
+  const provider = allProviders.find((entry) => entry.id === providerId);
   return provider ? provider.name : providerId;
 }
 
@@ -717,14 +769,14 @@ function renderLlmStatusInDetail(openTabs) {
   if (!llmStatusList) return;
   llmStatusList.innerHTML = "";
 
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const defaultProviders = getEffectiveProviders();
   const activeConv = getActiveConversation();
   const chatDisabled = activeConv?.disabledProviders || [];
   const manualUrls = activeConv?.manualUrlsByProvider || {};
   const hasActiveConv = Boolean(activeConversationId);
 
   defaultProviders.forEach((providerId) => {
-    const provider = PROVIDERS.find(p => p.id === providerId);
+    const provider = allProviders.find(p => p.id === providerId);
     if (!provider) return;
 
     const providerTabs = openTabs.filter(tab => tab.providerId === providerId);
@@ -767,7 +819,7 @@ function renderLlmStatusInDetail(openTabs) {
     const urlHint = displayUrl
       ? `<span class="status__url" title="${displayUrl}">${truncateText(displayUrl, 40)}</span>`
       : "";
-    const defaultUrl = PROVIDER_HOME_URLS[providerId] || "";
+    const defaultUrl = getProviderDefaultUrl(providerId);
 
     const item = document.createElement("li");
     item.className = `status__item ${statusClass}`;
@@ -802,7 +854,7 @@ function renderConversationDetail(conversation, openTabs = []) {
   const frontTabs = openTabs.filter(tab => tab.windowState !== "minimized");
   const frontProviderIds = frontTabs.map(tab => tab.providerId).filter(Boolean);
   const hasOpenTabs = frontTabs.length > 0;
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const defaultProviders = getEffectiveProviders();
   const allLlmsOpen = defaultProviders.every(id => frontProviderIds.includes(id));
 
   if (!conversation) {
@@ -1069,7 +1121,7 @@ function detectPendingUrlChanges(openTabs) {
     pendingUrlChanges = {};
     return;
   }
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map((p) => p.id);
+  const defaultProviders = getEffectiveProviders();
   defaultProviders.forEach((providerId) => {
     const storedUrl = getActiveUrlForProvider(conv, providerId);
     if (!storedUrl) {
@@ -1437,6 +1489,7 @@ async function handleBroadcast(mode) {
       scheduleConversationLinkCapture(activeConversationId);
     }
     promptField.value = "";
+    updatePromptHeight();
     savePrefs();
     queueRefresh(400);
   } finally {
@@ -1480,7 +1533,7 @@ function collectConversationUrlsWithFallback(conversation, providerIds) {
   const explicitProviders = Array.isArray(providerIds) && providerIds.length ? providerIds : null;
   const selectedProviders = explicitProviders
     ? explicitProviders
-    : PROVIDERS.map((provider) => provider.id);
+    : allProviders.map((provider) => provider.id);
   const fallbackProviders = explicitProviders
     ? explicitProviders
     : settings.defaultProviders.slice();
@@ -1565,55 +1618,132 @@ async function importData(file) {
   reader.readAsText(file);
 }
 
-async function init() {
-  const stored = await chrome.storage.local.get(STORAGE_KEYS);
-  settings = normalizeSettings(stored.settings);
+function renderCustomProviders() {
+  const listContainer = document.getElementById("custom-providers-list");
+  if (!listContainer) return;
+  listContainer.innerHTML = "";
   
-  // Apply theme immediately
-  applyTheme(settings.theme);
-  
-  if (togglesContainer) {
-    togglesContainer.innerHTML = "";
-  }
-  if (stored.lastPrompt) {
-    promptField.value = stored.lastPrompt;
-  }
+  cachedCustomProviders.forEach((provider) => {
+    const item = document.createElement("li");
+    item.className = "custom-provider-item";
+    
+    const info = document.createElement("div");
+    info.className = "custom-provider-item__info";
+    
+    const name = document.createElement("span");
+    name.className = "custom-provider-item__name";
+    name.textContent = provider.name;
+    
+    const url = document.createElement("span");
+    url.className = "custom-provider-item__url";
+    url.textContent = provider.url;
+    
+    info.appendChild(name);
+    info.appendChild(url);
+    
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "custom-provider-item__delete";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.type = "button";
+    deleteBtn.addEventListener("click", async () => {
+      if (confirm(`Are you sure you want to delete "${provider.name}"?`)) {
+        try {
+          const urlObj = new URL(provider.url);
+          const originPattern = `${urlObj.protocol}//${urlObj.hostname}/*`;
+          await chrome.scripting.unregisterContentScripts({ ids: [provider.id] });
+          chrome.permissions.remove({ origins: [originPattern] });
+        } catch (e) {
+          console.error("Failed to clean up permissions/script:", e);
+        }
 
-  if (historyLimitInput) historyLimitInput.value = settings.historyLimit;
-  
-  // Set theme selector value
-  const themeSelector = document.getElementById("theme-selector");
-  if (themeSelector) {
-    const themeRadio = themeSelector.querySelector(`input[value="${settings.theme}"]`);
-    if (themeRadio) themeRadio.checked = true;
-  }
-  
-  // Hook up Export/Import buttons
-  const exportDataButton = document.getElementById("export-data");
-  const importDataTrigger = document.getElementById("import-data-trigger");
-  const importFileInput = document.getElementById("import-file");
-
-  if (exportDataButton) {
-    exportDataButton.addEventListener("click", exportData);
-  }
-  if (importDataTrigger) {
-    importDataTrigger.addEventListener("click", () => {
-      importFileInput?.click();
-    });
-  }
-  if (importFileInput) {
-    importFileInput.addEventListener("change", (e) => {
-      if (e.target.files.length > 0) {
-        importData(e.target.files[0]);
-        e.target.value = "";
+        const updated = cachedCustomProviders.filter(p => p.id !== provider.id);
+        
+        const defaults = (settings.defaultProviders || []).filter(id => id !== provider.id);
+        const urls = { ...settings.providerUrls };
+        delete urls[provider.id];
+        
+        settings.defaultProviders = defaults;
+        settings.providerUrls = urls;
+        
+        await chrome.storage.local.set({ 
+          customProviders: updated,
+          settings: settings
+        });
+        
+        updateAllProvidersList(updated);
+        renderCustomProviders();
+        rebuildSettingsProvidersUI();
+        await refreshStatus();
       }
     });
-  }
+    
+    item.appendChild(info);
+    item.appendChild(deleteBtn);
+    listContainer.appendChild(item);
+  });
+
+  renderProviderSuggestions();
+}
+
+function renderProviderSuggestions() {
+  const container = document.getElementById("provider-suggestions");
+  if (!container) return;
+  container.innerHTML = "";
   
+  // Find which suggested providers are not yet added
+  const activeUrls = [
+    ...PROVIDERS.map(p => PROVIDER_HOME_URLS[p.id]),
+    ...cachedCustomProviders.map(p => p.url)
+  ].map(url => {
+    try {
+      return new URL(url).hostname.replace('www.', '').toLowerCase();
+    } catch(e) {
+      return '';
+    }
+  }).filter(Boolean);
+  
+  const toSuggest = SUGGESTED_PROVIDERS.filter(s => {
+    try {
+      const sHost = new URL(s.url).hostname.replace('www.', '').toLowerCase();
+      return !activeUrls.includes(sHost);
+    } catch(e) {
+      return true;
+    }
+  });
+  
+  if (toSuggest.length === 0) {
+    container.style.display = "none";
+    return;
+  }
+  container.style.display = "flex";
+  
+  const label = document.createElement("span");
+  label.className = "provider-suggestions__label";
+  label.textContent = "Suggestions:";
+  container.appendChild(label);
+  
+  toSuggest.forEach(s => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "provider-suggestion-chip";
+    chip.textContent = s.name;
+    chip.title = s.url;
+    chip.addEventListener("click", () => {
+      const newUrlInput = document.getElementById("new-provider-url");
+      if (newUrlInput) {
+        newUrlInput.value = s.url;
+        newUrlInput.focus();
+      }
+    });
+    container.appendChild(chip);
+  });
+}
+
+function rebuildSettingsProvidersUI() {
   if (defaultProvidersContainer) {
     defaultProvidersContainer.innerHTML = "";
     const defaultPrefs = buildProviderPrefs(settings.defaultProviders);
-    PROVIDERS.forEach((provider) => {
+    allProviders.forEach((provider) => {
       const wrapper = document.createElement("label");
       wrapper.className = "toggle";
       const input = document.createElement("input");
@@ -1633,8 +1763,8 @@ async function init() {
   const providerInitUrlsContainer = document.getElementById("provider-init-urls");
   if (providerInitUrlsContainer) {
     providerInitUrlsContainer.innerHTML = "";
-    PROVIDERS.forEach((provider) => {
-      const defaultUrl = PROVIDER_HOME_URLS[provider.id] || "";
+    allProviders.forEach((provider) => {
+      const defaultUrl = getProviderDefaultUrl(provider.id);
       const currentUrl = settings.providerUrls?.[provider.id] || "";
 
       const row = document.createElement("div");
@@ -1670,6 +1800,299 @@ async function init() {
       row.appendChild(label);
       row.appendChild(inputWrapper);
       providerInitUrlsContainer.appendChild(row);
+    });
+  }
+}
+
+function updatePromptHeight() {
+  if (!promptField) return;
+  if (!promptField.value) {
+    promptField.style.height = "30px";
+    return;
+  }
+  promptField.style.height = "auto";
+  promptField.style.height = `${promptField.scrollHeight}px`;
+}
+
+function renderTemplatesList() {
+  const templatesList = document.getElementById("templates-list");
+  const dropdownList = document.getElementById("new-chat-templates-list");
+  const container = document.getElementById("new-chat-templates-container");
+
+  if (templatesList) templatesList.innerHTML = "";
+  if (dropdownList) dropdownList.innerHTML = "";
+
+  if (chatTemplates.length === 0) {
+    if (container) container.style.display = "none";
+    if (templatesList) {
+      const empty = document.createElement("p");
+      empty.style.textAlign = "center";
+      empty.style.color = "var(--muted)";
+      empty.style.fontSize = "0.9rem";
+      empty.style.margin = "10px 0";
+      empty.textContent = "No templates created yet.";
+      templatesList.appendChild(empty);
+    }
+    return;
+  }
+
+  if (container) container.style.display = "block";
+
+  chatTemplates.forEach((tpl) => {
+    if (dropdownList) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "menu__item";
+      btn.style.textAlign = "left";
+      btn.textContent = tpl.name;
+      btn.addEventListener("click", () => {
+        startChatWithProviders(tpl.providers);
+      });
+      dropdownList.appendChild(btn);
+    }
+
+    if (templatesList) {
+      const li = document.createElement("li");
+      li.className = "custom-provider-item";
+
+      const info = document.createElement("div");
+      info.className = "custom-provider-item__info";
+
+      const name = document.createElement("div");
+      name.className = "custom-provider-item__name";
+      name.textContent = tpl.name;
+
+      const url = document.createElement("div");
+      url.className = "custom-provider-item__url";
+      
+      const providerNames = tpl.providers.map(id => {
+        const p = allProviders.find(prov => prov.id === id);
+        return p ? p.name : id;
+      });
+      url.textContent = providerNames.join(", ");
+
+      info.appendChild(name);
+      info.appendChild(url);
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "custom-provider-item__delete";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(`Delete template "${tpl.name}"?`)) return;
+        chatTemplates = chatTemplates.filter(t => t.id !== tpl.id);
+        await chrome.storage.local.set({ chatTemplates });
+        renderTemplatesList();
+      });
+
+      li.appendChild(info);
+      li.appendChild(delBtn);
+      templatesList.appendChild(li);
+    }
+  });
+}
+
+function rebuildTemplateProviderToggles() {
+  const container = document.getElementById("template-provider-toggles");
+  if (!container) return;
+  container.innerHTML = "";
+
+  allProviders.forEach((provider) => {
+    const label = document.createElement("label");
+    label.className = "toggle";
+    label.style.fontSize = "0.85rem";
+    label.style.padding = "6px 10px";
+
+    const text = document.createElement("span");
+    text.textContent = provider.name;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = provider.id;
+
+    label.appendChild(text);
+    label.appendChild(checkbox);
+    container.appendChild(label);
+  });
+}
+
+function startChatWithProviders(providerIds) {
+  if (!confirmPromptDiscard()) return;
+  activeSessionProviders = providerIds.slice();
+  startNewConversation();
+  chrome.windows.getCurrent((win) => {
+    chrome.runtime.sendMessage({
+      type: "new_chat",
+      providers: providerIds,
+      providerUrls: getProviderInitUrls(providerIds),
+      controlWindowId: win?.id || null
+    });
+  });
+  queueRefresh(800);
+  
+  const newChatMenu = document.getElementById("new-chat-menu");
+  if (newChatMenu) newChatMenu.open = false;
+  const headerMenu = document.getElementById("header-menu");
+  if (headerMenu) headerMenu.open = false;
+}
+
+async function init() {
+  const stored = await chrome.storage.local.get(["customProviders", "chatTemplates", ...STORAGE_KEYS]);
+  updateAllProvidersList(stored.customProviders || []);
+  chatTemplates = stored.chatTemplates || [];
+  settings = normalizeSettings(stored.settings);
+  
+  // Apply theme immediately
+  applyTheme(settings.theme);
+  
+  if (togglesContainer) {
+    togglesContainer.innerHTML = "";
+  }
+  if (promptField) {
+    promptField.addEventListener("input", updatePromptHeight);
+  }
+  if (stored.lastPrompt) {
+    promptField.value = stored.lastPrompt;
+    updatePromptHeight();
+  }
+
+  if (historyLimitInput) historyLimitInput.value = settings.historyLimit;
+  
+  // Set theme selector value
+  const themeSelector = document.getElementById("theme-selector");
+  if (themeSelector) {
+    const themeRadio = themeSelector.querySelector(`input[value="${settings.theme}"]`);
+    if (themeRadio) themeRadio.checked = true;
+  }
+  
+  // Hook up Export/Import buttons
+  const exportDataButton = document.getElementById("export-data");
+  const importDataTrigger = document.getElementById("import-data-trigger");
+  const importFileInput = document.getElementById("import-file");
+
+  if (exportDataButton) {
+    exportDataButton.addEventListener("click", exportData);
+  }
+  if (importDataTrigger) {
+    importDataTrigger.addEventListener("click", () => {
+      importFileInput?.click();
+    });
+  }
+  if (importFileInput) {
+    importFileInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        importData(e.target.files[0]);
+        e.target.value = "";
+      }
+    });
+  }
+  
+  renderCustomProviders();
+  rebuildSettingsProvidersUI();
+
+  const addBtn = document.getElementById("add-provider-btn");
+  const newUrlInput = document.getElementById("new-provider-url");
+  if (addBtn && newUrlInput) {
+    addBtn.addEventListener("click", async () => {
+      const urlValue = newUrlInput.value.trim();
+      if (!urlValue) {
+        alert("Please enter a valid provider URL.");
+        return;
+      }
+      let urlObj;
+      try {
+        urlObj = new URL(urlValue);
+      } catch (e) {
+        alert("Invalid URL. Make sure it starts with http:// or https://");
+        return;
+      }
+      
+      const name = extractMainDomain(urlValue);
+      if (!name) {
+        alert("Could not extract a valid provider name from domain.");
+        return;
+      }
+      
+      let newId = name.toLowerCase();
+      let suffix = 1;
+      const originalId = newId;
+      while (
+        PROVIDERS.some(p => p.id === newId) || 
+        cachedCustomProviders.some(p => p.id === newId)
+      ) {
+        newId = `${originalId}-${suffix}`;
+        suffix++;
+      }
+
+      const originPattern = `${urlObj.protocol}//${urlObj.hostname}/*`;
+
+      chrome.permissions.request({
+        origins: [originPattern]
+      }, async (granted) => {
+        if (!granted) {
+          alert("Permission to access the URL is required to add this provider.");
+          return;
+        }
+
+        try {
+          await chrome.scripting.registerContentScripts([{
+            id: newId,
+            matches: [originPattern],
+            js: ["src/content.js"],
+            runAt: "document_idle"
+          }]);
+        } catch (err) {
+          console.error("Failed to register dynamic script:", err);
+        }
+
+        const newProvider = {
+          id: newId,
+          name: name,
+          url: urlValue
+        };
+        
+        const updated = [...cachedCustomProviders, newProvider];
+        const defaults = [...(settings.defaultProviders || [])];
+        if (!defaults.includes(newId)) {
+          defaults.push(newId);
+        }
+        settings.defaultProviders = defaults;
+        
+        await chrome.storage.local.set({
+          customProviders: updated,
+          settings: settings
+        });
+        
+        updateAllProvidersList(updated);
+        newUrlInput.value = "";
+        renderCustomProviders();
+        rebuildSettingsProvidersUI();
+        await refreshStatus();
+      });
+    });
+  }
+
+  const reloadBtn = document.getElementById("reload-extension");
+  if (reloadBtn) {
+    reloadBtn.addEventListener("click", () => {
+      const menu = document.getElementById("header-menu");
+      if (menu) menu.open = false;
+      chrome.windows.getCurrent(async (win) => {
+        const bounds = {
+          left: win.left,
+          top: win.top,
+          width: win.width,
+          height: win.height
+        };
+        await chrome.storage.local.set({
+          reopenControllerAfterReload: true,
+          reopenControllerBounds: bounds
+        });
+        
+        chrome.runtime.sendMessage({ type: "close_all" }, () => {
+          chrome.runtime.reload();
+        });
+      });
     });
   }
 
@@ -1762,6 +2185,7 @@ async function init() {
       });
 
       const providerUrls = {};
+      const providerInitUrlsContainer = document.getElementById("provider-init-urls");
       providerInitUrlsContainer?.querySelectorAll("input[data-provider-id]").forEach((input) => {
         const url = input.value.trim();
         if (url) providerUrls[input.dataset.providerId] = url;
@@ -1992,21 +2416,70 @@ async function init() {
     if (menu) menu.open = false;
   });
 
-  document.getElementById("new-chat").addEventListener("click", () => {
-    startNewConversation();
-    const providers = getSelectedProviders();
-    chrome.windows.getCurrent((win) => {
-      chrome.runtime.sendMessage({
-        type: "new_chat",
-        providers,
-        providerUrls: getProviderInitUrls(providers),
-        controlWindowId: win?.id || null
-      });
+  const newChatDefaultBtn = document.getElementById("new-chat-default");
+  if (newChatDefaultBtn) {
+    newChatDefaultBtn.addEventListener("click", () => {
+      activeSessionProviders = null;
+      startChatWithProviders(settings.defaultProviders.slice());
     });
-    queueRefresh(800);
-    const menu = document.getElementById("header-menu");
-    if (menu) menu.open = false;
-  });
+  }
+
+  const openManageTemplatesBtn = document.getElementById("open-manage-templates");
+  const openTemplates = () => {
+    templatesModal?.classList.remove("is-hidden");
+    const newChatMenu = document.getElementById("new-chat-menu");
+    if (newChatMenu) newChatMenu.open = false;
+    rebuildTemplateProviderToggles();
+    renderTemplatesList();
+  };
+  const closeTemplates = () => {
+    templatesModal?.classList.add("is-hidden");
+  };
+
+  if (openManageTemplatesBtn) {
+    openManageTemplatesBtn.addEventListener("click", openTemplates);
+  }
+  if (closeTemplatesButton) {
+    closeTemplatesButton.addEventListener("click", closeTemplates);
+  }
+  if (templatesBackdrop) {
+    templatesBackdrop.addEventListener("click", closeTemplates);
+  }
+
+  const createTemplateBtn = document.getElementById("create-template-btn");
+  const newTemplateNameInput = document.getElementById("new-template-name");
+  if (createTemplateBtn && newTemplateNameInput) {
+    createTemplateBtn.addEventListener("click", async () => {
+      const name = newTemplateNameInput.value.trim();
+      if (!name) {
+        alert("Please enter a template name.");
+        return;
+      }
+
+      const togglesContainer = document.getElementById("template-provider-toggles");
+      const checkedInputs = Array.from(togglesContainer.querySelectorAll("input[type='checkbox']:checked"));
+      const selectedProviders = checkedInputs.map(input => input.value);
+
+      if (selectedProviders.length === 0) {
+        alert("Please select at least one provider for the template.");
+        return;
+      }
+
+      const newTemplate = {
+        id: "template_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9),
+        name,
+        providers: selectedProviders
+      };
+
+      chatTemplates = [...chatTemplates, newTemplate];
+      await chrome.storage.local.set({ chatTemplates });
+      
+      newTemplateNameInput.value = "";
+      togglesContainer.querySelectorAll("input[type='checkbox']").forEach(cb => cb.checked = false);
+      
+      renderTemplatesList();
+    });
+  }
 
   if (openLlmsButton) {
     openLlmsButton.addEventListener("click", () => {
@@ -2090,9 +2563,11 @@ async function init() {
       if (!confirmPromptDiscard()) return;
       if (promptField.value.trim()) {
         promptField.value = "";
+        updatePromptHeight();
         savePrefs();
       }
 
+      activeSessionProviders = null;
       chrome.storage.local.set({ activeConversationId: conversationId }).then(async () => {
         await refreshConversations();
         if (action === "open") {
@@ -2108,6 +2583,8 @@ async function init() {
   });
 
   promptField.addEventListener("change", savePrefs);
+
+  renderTemplatesList();
 }
 
 init();

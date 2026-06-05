@@ -32,14 +32,21 @@ const PROVIDERS = [
 ];
 
 let debugEnabled = false;
+let customProviders = [];
 
-chrome.storage.local.get(["debug"], (data) => {
+chrome.storage.local.get(["debug", "customProviders"], (data) => {
   debugEnabled = Boolean(data?.debug);
+  customProviders = data?.customProviders || [];
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !changes.debug) return;
-  debugEnabled = Boolean(changes.debug.newValue);
+  if (area !== "local") return;
+  if (changes.debug) {
+    debugEnabled = Boolean(changes.debug.newValue);
+  }
+  if (changes.customProviders) {
+    customProviders = changes.customProviders.newValue || [];
+  }
 });
 
 function logDebug(...args) {
@@ -47,10 +54,34 @@ function logDebug(...args) {
   console.log("[Muchallms]", ...args);
 }
 
+function getAllProviders() {
+  const customList = customProviders.map(p => {
+    let matches = [];
+    try {
+      const urlObj = new URL(p.url);
+      const host = urlObj.hostname.toLowerCase();
+      const escapedHost = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const parts = host.split('.');
+      const mainDomain = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+      const escapedMainDomain = mainDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      matches = [new RegExp(escapedHost), new RegExp(escapedMainDomain + '\\..*')];
+    } catch (e) {
+      matches = [/.*/];
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      matches: matches,
+      url: p.url
+    };
+  });
+  return [...PROVIDERS, ...customList];
+}
+
 function getProviderForUrl(url) {
   if (!url) return null;
   return (
-    PROVIDERS.find((provider) => provider.matches.some((match) => match.test(url))) || null
+    getAllProviders().find((provider) => provider.matches.some((match) => match.test(url))) || null
   );
 }
 
@@ -186,7 +217,7 @@ function getWorkAreaForWindow(windowId) {
 async function detectLLMWindows() {
   const windows = await getAllWindows();
   const providerStatus = {};
-  PROVIDERS.forEach((provider) => {
+  getAllProviders().forEach((provider) => {
     providerStatus[provider.id] = false;
   });
 
@@ -244,17 +275,16 @@ async function closeProviderWindows(options = {}) {
 
   windows.forEach((win) => {
     if (win.type !== "popup") return;
-    // Only close managed windows, or unmanaged popup windows if includeUnmanaged is true
     const isManaged = managedIds.has(win.id);
-    if (!isManaged) {
-      // For unmanaged windows, only close if includeUnmanaged is true AND it's a popup window
-      if (!includeUnmanaged || win.type !== "popup") return;
-    }
-
     const hasControlTab = (win.tabs || []).some((tab) => isControlUrl(tab.url || ""));
     const hasProviderTab = (win.tabs || []).some((tab) => getProviderForUrl(tab.url || ""));
 
-    if (hasProviderTab && !hasControlTab) {
+    const shouldClose = (!hasControlTab) && (
+      isManaged ||
+      (includeUnmanaged && hasProviderTab)
+    );
+
+    if (shouldClose) {
       removals.push(
         new Promise((resolve) => {
           chrome.windows.remove(win.id, () => resolve());
@@ -356,10 +386,12 @@ async function relayoutManagedWindows() {
 
 async function listProviderTabs() {
   const windows = await getAllWindows();
+  const managedIds = new Set(await getManagedWindowIds());
   const tabs = [];
 
   windows.forEach((win) => {
     if (win.type !== "popup") return;
+    if (!managedIds.has(win.id)) return;
     (win.tabs || []).forEach((tab) => {
       const url = tab.url || "";
       const provider = getProviderForUrl(url);
@@ -379,16 +411,10 @@ async function listProviderTabs() {
 
   const getTabLocation = async (tabId, attempts = 3, delayMs = 500) => {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const locationUrl = await new Promise((resolve) => {
-        chrome.tabs.sendMessage(tabId, { type: "get_location" }, (response) => {
-          if (chrome.runtime.lastError) {
-            resolve(null);
-            return;
-          }
-          resolve(response?.url || null);
-        });
-      });
-      if (locationUrl) return locationUrl;
+      const response = await sendMessageToTab(tabId, { type: "get_location" });
+      if (response && response.url) {
+        return response.url;
+      }
       if (attempt + 1 < attempts) {
         await delay(delayMs);
       }
@@ -411,12 +437,33 @@ async function listProviderTabs() {
 
 function sendMessageToTab(tabId, message) {
   return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false });
+    chrome.tabs.sendMessage(tabId, message, async (response) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        logDebug(`Message failed for tab ${tabId}: ${lastError.message}. Trying to inject content.js...`);
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ["src/content.js"]
+          });
+          // Wait a little bit for content.js to initialize
+          await delay(150);
+          // Try sending the message again
+          chrome.tabs.sendMessage(tabId, message, (retryResponse) => {
+            if (chrome.runtime.lastError) {
+              logDebug(`Retry failed for tab ${tabId}: ${chrome.runtime.lastError.message}`);
+              resolve({ ok: false });
+            } else {
+              resolve(retryResponse || { ok: true });
+            }
+          });
+        } catch (err) {
+          logDebug(`Programmatic injection failed for tab ${tabId}:`, err);
+          resolve({ ok: false });
+        }
         return;
       }
-      resolve(response || { ok: false });
+      resolve(response || { ok: true });
     });
   });
 }
@@ -444,7 +491,7 @@ function getGridDimensions(count) {
 }
 
 async function openAutoGrid({ providerIds, controlWindowId, providerUrls }) {
-  const providers = PROVIDERS.filter((provider) => providerIds.includes(provider.id));
+  const providers = getAllProviders().filter((provider) => providerIds.includes(provider.id));
   const totalWindows = providers.length + 1;
   if (totalWindows <= 0) return;
 
@@ -519,7 +566,7 @@ async function openAutoGrid({ providerIds, controlWindowId, providerUrls }) {
 async function openPopupWindows(layout) {
   const workArea = await getPrimaryWorkArea();
   const controlUrl = chrome.runtime.getURL("src/control.html");
-  const providerList = PROVIDERS.slice();
+  const providerList = getAllProviders().slice();
   const windowSpecs = [{ type: "control", url: controlUrl }].concat(
     providerList.map((provider) => ({ type: "provider", url: provider.url }))
   );
@@ -672,9 +719,11 @@ async function openConversationGrid({ urls, controlWindowId }) {
 
 async function broadcastPrompt({ prompt, providerIds, mode }) {
   const windows = await getAllWindows();
+  const managedIds = new Set(await getManagedWindowIds());
   const targets = [];
 
   windows.forEach((win) => {
+    if (!managedIds.has(win.id)) return;
     (win.tabs || []).forEach((tab) => {
       const provider = getProviderForUrl(tab.url || "");
       if (!provider) return;
@@ -720,6 +769,13 @@ async function broadcastPrompt({ prompt, providerIds, mode }) {
 
 chrome.action.onClicked.addListener(() => {
   ensureControlWindow({ width: 420, height: 600 });
+});
+
+chrome.storage.local.get(["reopenControllerAfterReload", "reopenControllerBounds"], async (data) => {
+  if (data?.reopenControllerAfterReload) {
+    await chrome.storage.local.remove(["reopenControllerAfterReload", "reopenControllerBounds"]);
+    ensureControlWindow(data.reopenControllerBounds || { width: 420, height: 600 });
+  }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -783,7 +839,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === "close_all") {
-      await closeProviderWindows();
+      await closeProviderWindows({ includeUnmanaged: true });
       sendResponse({ ok: true });
       return;
     }

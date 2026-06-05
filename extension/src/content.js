@@ -87,16 +87,77 @@ function getAdapter() {
   return ADAPTERS.find((adapter) => adapter.hostMatch.test(window.location.host));
 }
 
+function isStyleHidden(element) {
+  let el = element;
+  while (el) {
+    if (el.nodeType === 1) { // ELEMENT_NODE
+      try {
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") {
+          return true;
+        }
+      } catch (e) {}
+    }
+    const parent = el.parentNode;
+    if (parent) {
+      el = parent;
+    } else if (el.host) {
+      el = el.host;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
+
 function isVisible(element) {
-  return element && element.offsetParent !== null;
+  if (!element) return false;
+  if (!element.isConnected) return false;
+  
+  const rect = element.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    return true;
+  }
+  
+  // For background tabs / slotted elements / fixed positioning where layout bounds might be 0:
+  return !isStyleHidden(element);
+}
+
+function querySelectorAllShadow(selector, root = document) {
+  const elements = [];
+  
+  try {
+    const matches = root.querySelectorAll(selector);
+    for (const match of matches) {
+      if (!elements.includes(match)) {
+        elements.push(match);
+      }
+    }
+  } catch (e) {}
+  
+  try {
+    const allElements = root.querySelectorAll('*');
+    for (const el of allElements) {
+      if (el.shadowRoot) {
+        const shadowMatches = querySelectorAllShadow(selector, el.shadowRoot);
+        for (const match of shadowMatches) {
+          if (!elements.includes(match)) {
+            elements.push(match);
+          }
+        }
+      }
+    }
+  } catch (e) {}
+  
+  return elements;
 }
 
 function findInput(adapter) {
   const selectors = adapter?.inputSelectors || ["textarea", "div[contenteditable='true']"];
   for (const selector of selectors) {
-    const candidates = Array.from(document.querySelectorAll(selector));
+    const candidates = querySelectorAllShadow(selector);
     const element = candidates.find((node) => !node.disabled && isVisible(node));
-    if (element && !element.isContentEditable) {
+    if (element && !element.isContentEditable && element.tagName.toLowerCase() !== "textarea" && element.tagName.toLowerCase() !== "input") {
       const editableParent = element.closest("[contenteditable='true']");
       if (editableParent) return editableParent;
     }
@@ -108,10 +169,32 @@ function findInput(adapter) {
 function findSendButton(adapter) {
   const selectors = adapter?.sendSelectors || [];
   for (const selector of selectors) {
-    const candidates = Array.from(document.querySelectorAll(selector));
+    const candidates = querySelectorAllShadow(selector);
     const element = candidates.find((node) => !node.disabled && isVisible(node));
     if (element) return element;
   }
+  
+  // Generic fallback: find any visible button or element with role="button" containing send-like text
+  const genericCandidates = querySelectorAllShadow("button, [role='button'], input[type='submit'], input[type='button']");
+  const sendWords = ["send", "submit", "post", "comment", "reply", "ask", "go", "chat"];
+  
+  for (const node of genericCandidates) {
+    if (node.disabled || !isVisible(node)) continue;
+    
+    const text = (node.textContent || "").toLowerCase().trim();
+    const ariaLabel = (node.getAttribute("aria-label") || "").toLowerCase();
+    const title = (node.getAttribute("title") || "").toLowerCase();
+    const value = (node.getAttribute("value") || "").toLowerCase();
+    
+    const matchesWord = sendWords.some(word => 
+      text.includes(word) || ariaLabel.includes(word) || title.includes(word) || value.includes(word)
+    );
+    
+    if (matchesWord) {
+      return node;
+    }
+  }
+  
   return null;
 }
 
@@ -132,6 +215,7 @@ function dispatchInputEvent(element, value) {
     try {
       const inputEvent = new InputEvent("input", {
         bubbles: true,
+        composed: true,
         data: value,
         inputType: "insertText"
       });
@@ -142,7 +226,22 @@ function dispatchInputEvent(element, value) {
     }
   }
 
-  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+}
+
+function setNativeValue(element, value) {
+  try {
+    const prototype = Object.getPrototypeOf(element);
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(element, value);
+    } else {
+      element.value = value;
+    }
+  } catch (e) {
+    element.value = value;
+  }
 }
 
 function setInputValue(element, value) {
@@ -150,8 +249,20 @@ function setInputValue(element, value) {
 
   if (element.tagName.toLowerCase() === "textarea" || element.tagName.toLowerCase() === "input") {
     element.focus();
-    element.value = value;
+    setNativeValue(element, value);
     dispatchInputEvent(element, value);
+
+    // Also update custom element host if this is inside a Shadow Root
+    const rootNode = element.getRootNode();
+    if (rootNode && rootNode.host) {
+      try {
+        setNativeValue(rootNode.host, value);
+        rootNode.host.setAttribute("value", value);
+        dispatchInputEvent(rootNode.host, value);
+      } catch (e) {
+        // Safe fallback if host doesn't accept setting value directly
+      }
+    }
     return;
   }
 
@@ -233,6 +344,7 @@ function triggerSend(adapter, element) {
   const eventInit = {
     bubbles: true,
     cancelable: true,
+    composed: true,
     key: "Enter",
     code: "Enter",
     keyCode: 13
@@ -240,7 +352,13 @@ function triggerSend(adapter, element) {
   element.dispatchEvent(new KeyboardEvent("keydown", eventInit));
   element.dispatchEvent(new KeyboardEvent("keyup", eventInit));
 
-  const form = element.closest("form");
+  let form = element.closest("form");
+  if (!form) {
+    const rootNode = element.getRootNode();
+    if (rootNode && rootNode.host) {
+      form = rootNode.host.closest("form");
+    }
+  }
   if (form) {
     form.requestSubmit?.();
   }
@@ -254,29 +372,77 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type !== "broadcast") return;
 
-  const adapter = getAdapter();
-  const input = findInput(adapter);
+  chrome.storage.local.get(["customProviders"], (data) => {
+    const customProviders = data.customProviders || [];
+    let adapter = getAdapter();
 
-  if (!input) {
-    sendResponse({ ok: false, error: "Input not found" });
-    return;
-  }
+    if (!adapter) {
+      const matchedCustom = customProviders.find((p) => {
+        try {
+          const urlObj = new URL(p.url);
+          const host = urlObj.hostname.toLowerCase();
+          const parts = host.split('.');
+          const mainDomain = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+          return window.location.host.toLowerCase().includes(mainDomain.toLowerCase());
+        } catch (e) {
+          return false;
+        }
+      });
 
-  const mode = message.mode || "paste";
-  const prompt = message.prompt || "";
-  const expected = normalizeText(prompt);
+      if (matchedCustom) {
+        adapter = {
+          id: matchedCustom.id,
+          inputSelectors: [
+            "textarea",
+            "div[contenteditable='true'][role='textbox']",
+            "div[contenteditable='true']",
+            "input[type='text']"
+          ],
+          sendSelectors: [
+            "button[type='submit']",
+            "button[id*='submit' i]",
+            "button[id*='send' i]",
+            "button[aria-label*='submit' i]",
+            "button[aria-label*='send' i]",
+            "button[class*='submit' i]",
+            "button[class*='send' i]",
+            "#submit-button",
+            "#send-button"
+          ]
+        };
+      }
+    }
 
-  if (mode === "paste") {
-    setInputValue(input, prompt);
-    waitForInputMatch(input, expected).then((matched) => {
-      sendResponse(matched ? { ok: true } : { ok: false, error: "Input mismatch" });
-    });
-    return true;
-  }
+    if (!adapter) {
+      sendResponse({ ok: false, error: "Adapter not found" });
+      return;
+    }
 
-  if (mode === "submit" || mode === "send") {
-    triggerSend(adapter, input);
-    sendResponse({ ok: true });
-    return;
-  }
+    const input = findInput(adapter);
+
+    if (!input) {
+      sendResponse({ ok: false, error: "Input not found" });
+      return;
+    }
+
+    const mode = message.mode || "paste";
+    const prompt = message.prompt || "";
+    const expected = normalizeText(prompt);
+
+    if (mode === "paste") {
+      setInputValue(input, prompt);
+      waitForInputMatch(input, expected).then((matched) => {
+        sendResponse(matched ? { ok: true } : { ok: false, error: "Input mismatch" });
+      });
+      return;
+    }
+
+    if (mode === "submit" || mode === "send") {
+      triggerSend(adapter, input);
+      sendResponse({ ok: true });
+      return;
+    }
+  });
+
+  return true; // Keep message channel open for async response
 });
