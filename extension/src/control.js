@@ -22,7 +22,8 @@ const SUGGESTED_PROVIDERS = [
   { name: "Ollama", url: "http://localhost:3000/" },
   { name: "Poe", url: "https://poe.com/" },
   { name: "Phind", url: "https://www.phind.com/" },
-  { name: "DuckDuckGo", url: "https://duckduckgo.com/chat" }
+  { name: "DuckDuckGo", url: "https://duckduckgo.com/chat" },
+  { name: "Reddit Answers", url: "https://www.reddit.com/answers/" }
 ];
 
 let allProviders = [...PROVIDERS];
@@ -1479,6 +1480,7 @@ async function handleBroadcast(mode) {
       scheduleConversationLinkCapture(activeConversationId);
     }
     promptField.value = "";
+    updatePromptHeight();
     savePrefs();
     queueRefresh(400);
   } finally {
@@ -1793,6 +1795,16 @@ function rebuildSettingsProvidersUI() {
   }
 }
 
+function updatePromptHeight() {
+  if (!promptField) return;
+  if (!promptField.value) {
+    promptField.style.height = "30px";
+    return;
+  }
+  promptField.style.height = "auto";
+  promptField.style.height = `${promptField.scrollHeight}px`;
+}
+
 async function init() {
   const stored = await chrome.storage.local.get(["customProviders", ...STORAGE_KEYS]);
   updateAllProvidersList(stored.customProviders || []);
@@ -1804,8 +1816,12 @@ async function init() {
   if (togglesContainer) {
     togglesContainer.innerHTML = "";
   }
+  if (promptField) {
+    promptField.addEventListener("input", updatePromptHeight);
+  }
   if (stored.lastPrompt) {
     promptField.value = stored.lastPrompt;
+    updatePromptHeight();
   }
 
   if (historyLimitInput) historyLimitInput.value = settings.historyLimit;
@@ -2366,6 +2382,7 @@ async function init() {
       if (!confirmPromptDiscard()) return;
       if (promptField.value.trim()) {
         promptField.value = "";
+        updatePromptHeight();
         savePrefs();
       }
 

@@ -409,16 +409,10 @@ async function listProviderTabs() {
 
   const getTabLocation = async (tabId, attempts = 3, delayMs = 500) => {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const locationUrl = await new Promise((resolve) => {
-        chrome.tabs.sendMessage(tabId, { type: "get_location" }, (response) => {
-          if (chrome.runtime.lastError) {
-            resolve(null);
-            return;
-          }
-          resolve(response?.url || null);
-        });
-      });
-      if (locationUrl) return locationUrl;
+      const response = await sendMessageToTab(tabId, { type: "get_location" });
+      if (response && response.url) {
+        return response.url;
+      }
       if (attempt + 1 < attempts) {
         await delay(delayMs);
       }
@@ -441,12 +435,33 @@ async function listProviderTabs() {
 
 function sendMessageToTab(tabId, message) {
   return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false });
+    chrome.tabs.sendMessage(tabId, message, async (response) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        logDebug(`Message failed for tab ${tabId}: ${lastError.message}. Trying to inject content.js...`);
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ["src/content.js"]
+          });
+          // Wait a little bit for content.js to initialize
+          await delay(150);
+          // Try sending the message again
+          chrome.tabs.sendMessage(tabId, message, (retryResponse) => {
+            if (chrome.runtime.lastError) {
+              logDebug(`Retry failed for tab ${tabId}: ${chrome.runtime.lastError.message}`);
+              resolve({ ok: false });
+            } else {
+              resolve(retryResponse || { ok: true });
+            }
+          });
+        } catch (err) {
+          logDebug(`Programmatic injection failed for tab ${tabId}:`, err);
+          resolve({ ok: false });
+        }
         return;
       }
-      resolve(response || { ok: false });
+      resolve(response || { ok: true });
     });
   });
 }
