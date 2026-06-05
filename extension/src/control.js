@@ -113,6 +113,11 @@ const llmDropdownButton = document.querySelector(".llm-dropdown-button");
 const openLlmsMenuButton = document.getElementById("open-llms-menu-button");
 const closeAllMenuButton = document.getElementById("close-all-menu-button");
 
+let chatTemplates = [];
+const templatesModal = document.getElementById("templates-modal");
+const templatesBackdrop = document.getElementById("templates-backdrop");
+const closeTemplatesButton = document.getElementById("close-templates");
+
 const DEFAULT_SETTINGS = {
   historyLimit: 50,
   defaultProviders: PROVIDERS.map((provider) => provider.id),
@@ -144,6 +149,7 @@ let settings = { ...DEFAULT_SETTINGS };
 let llmStatusPollingInterval = null;
 let lastOpenTabsSignature = "";
 let historySearchState = { query: "", mode: "contains", regexError: "" };
+let activeSessionProviders = null;
 
 const VALID_THEMES = ["system", "light", "dark"];
 
@@ -262,15 +268,19 @@ function renderOpenChats(tabs) {
   });
 }
 
+function getEffectiveProviders() {
+  return activeSessionProviders || settings.defaultProviders || allProviders.map(p => p.id);
+}
+
 function getSelectedProviders() {
   const disabled = getActiveConversationDisabledProviders();
-  return settings.defaultProviders.filter((id) => !disabled.includes(id));
+  return getEffectiveProviders().filter((id) => !disabled.includes(id));
 }
 
 function getSelectedProvidersWithFallback() {
   const selected = getSelectedProviders();
   if (selected.length) return selected;
-  return settings.defaultProviders.slice();
+  return getEffectiveProviders().slice();
 }
 
 function getOrderedProviders(providerIds) {
@@ -334,8 +344,7 @@ function getOpenTabsSignature(tabs) {
 function updateSendButtonState(openTabs) {
   if (!sendButton) return;
   const disabled = getActiveConversationDisabledProviders();
-  const enabledProviders = (settings.defaultProviders || allProviders.map(p => p.id))
-    .filter((id) => !disabled.includes(id));
+  const enabledProviders = getEffectiveProviders().filter((id) => !disabled.includes(id));
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
     .map(tab => tab.providerId)
@@ -348,7 +357,7 @@ function updateSendButtonState(openTabs) {
 }
 
 function renderLlmMenuDropdown(openTabs) {
-  const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
+  const defaultProviders = getEffectiveProviders();
   const chatDisabled = getActiveConversationDisabledProviders();
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
@@ -468,7 +477,7 @@ async function pollLlmStatus() {
       renderLlmStatusInDetail(openTabs);
       const actionButton = llmStatusContainer.querySelector(".llm-status-action");
       if (actionButton) {
-        const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
+        const defaultProviders = getEffectiveProviders();
         const frontProviderIds = openTabs
           .filter(tab => tab.windowState !== "minimized")
           .map(tab => tab.providerId)
@@ -760,7 +769,7 @@ function renderLlmStatusInDetail(openTabs) {
   if (!llmStatusList) return;
   llmStatusList.innerHTML = "";
 
-  const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
+  const defaultProviders = getEffectiveProviders();
   const activeConv = getActiveConversation();
   const chatDisabled = activeConv?.disabledProviders || [];
   const manualUrls = activeConv?.manualUrlsByProvider || {};
@@ -845,7 +854,7 @@ function renderConversationDetail(conversation, openTabs = []) {
   const frontTabs = openTabs.filter(tab => tab.windowState !== "minimized");
   const frontProviderIds = frontTabs.map(tab => tab.providerId).filter(Boolean);
   const hasOpenTabs = frontTabs.length > 0;
-  const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
+  const defaultProviders = getEffectiveProviders();
   const allLlmsOpen = defaultProviders.every(id => frontProviderIds.includes(id));
 
   if (!conversation) {
@@ -1112,7 +1121,7 @@ function detectPendingUrlChanges(openTabs) {
     pendingUrlChanges = {};
     return;
   }
-  const defaultProviders = settings.defaultProviders || allProviders.map((p) => p.id);
+  const defaultProviders = getEffectiveProviders();
   defaultProviders.forEach((providerId) => {
     const storedUrl = getActiveUrlForProvider(conv, providerId);
     if (!storedUrl) {
@@ -1805,9 +1814,132 @@ function updatePromptHeight() {
   promptField.style.height = `${promptField.scrollHeight}px`;
 }
 
+function renderTemplatesList() {
+  const templatesList = document.getElementById("templates-list");
+  const dropdownList = document.getElementById("new-chat-templates-list");
+  const container = document.getElementById("new-chat-templates-container");
+
+  if (templatesList) templatesList.innerHTML = "";
+  if (dropdownList) dropdownList.innerHTML = "";
+
+  if (chatTemplates.length === 0) {
+    if (container) container.style.display = "none";
+    if (templatesList) {
+      const empty = document.createElement("p");
+      empty.style.textAlign = "center";
+      empty.style.color = "var(--muted)";
+      empty.style.fontSize = "0.9rem";
+      empty.style.margin = "10px 0";
+      empty.textContent = "No templates created yet.";
+      templatesList.appendChild(empty);
+    }
+    return;
+  }
+
+  if (container) container.style.display = "block";
+
+  chatTemplates.forEach((tpl) => {
+    if (dropdownList) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "menu__item";
+      btn.style.textAlign = "left";
+      btn.textContent = tpl.name;
+      btn.addEventListener("click", () => {
+        startChatWithProviders(tpl.providers);
+      });
+      dropdownList.appendChild(btn);
+    }
+
+    if (templatesList) {
+      const li = document.createElement("li");
+      li.className = "custom-provider-item";
+
+      const info = document.createElement("div");
+      info.className = "custom-provider-item__info";
+
+      const name = document.createElement("div");
+      name.className = "custom-provider-item__name";
+      name.textContent = tpl.name;
+
+      const url = document.createElement("div");
+      url.className = "custom-provider-item__url";
+      
+      const providerNames = tpl.providers.map(id => {
+        const p = allProviders.find(prov => prov.id === id);
+        return p ? p.name : id;
+      });
+      url.textContent = providerNames.join(", ");
+
+      info.appendChild(name);
+      info.appendChild(url);
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "custom-provider-item__delete";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(`Delete template "${tpl.name}"?`)) return;
+        chatTemplates = chatTemplates.filter(t => t.id !== tpl.id);
+        await chrome.storage.local.set({ chatTemplates });
+        renderTemplatesList();
+      });
+
+      li.appendChild(info);
+      li.appendChild(delBtn);
+      templatesList.appendChild(li);
+    }
+  });
+}
+
+function rebuildTemplateProviderToggles() {
+  const container = document.getElementById("template-provider-toggles");
+  if (!container) return;
+  container.innerHTML = "";
+
+  allProviders.forEach((provider) => {
+    const label = document.createElement("label");
+    label.className = "toggle";
+    label.style.fontSize = "0.85rem";
+    label.style.padding = "6px 10px";
+
+    const text = document.createElement("span");
+    text.textContent = provider.name;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = provider.id;
+
+    label.appendChild(text);
+    label.appendChild(checkbox);
+    container.appendChild(label);
+  });
+}
+
+function startChatWithProviders(providerIds) {
+  if (!confirmPromptDiscard()) return;
+  activeSessionProviders = providerIds.slice();
+  startNewConversation();
+  chrome.windows.getCurrent((win) => {
+    chrome.runtime.sendMessage({
+      type: "new_chat",
+      providers: providerIds,
+      providerUrls: getProviderInitUrls(providerIds),
+      controlWindowId: win?.id || null
+    });
+  });
+  queueRefresh(800);
+  
+  const newChatMenu = document.getElementById("new-chat-menu");
+  if (newChatMenu) newChatMenu.open = false;
+  const headerMenu = document.getElementById("header-menu");
+  if (headerMenu) headerMenu.open = false;
+}
+
 async function init() {
-  const stored = await chrome.storage.local.get(["customProviders", ...STORAGE_KEYS]);
+  const stored = await chrome.storage.local.get(["customProviders", "chatTemplates", ...STORAGE_KEYS]);
   updateAllProvidersList(stored.customProviders || []);
+  chatTemplates = stored.chatTemplates || [];
   settings = normalizeSettings(stored.settings);
   
   // Apply theme immediately
@@ -2284,21 +2416,70 @@ async function init() {
     if (menu) menu.open = false;
   });
 
-  document.getElementById("new-chat").addEventListener("click", () => {
-    startNewConversation();
-    const providers = getSelectedProviders();
-    chrome.windows.getCurrent((win) => {
-      chrome.runtime.sendMessage({
-        type: "new_chat",
-        providers,
-        providerUrls: getProviderInitUrls(providers),
-        controlWindowId: win?.id || null
-      });
+  const newChatDefaultBtn = document.getElementById("new-chat-default");
+  if (newChatDefaultBtn) {
+    newChatDefaultBtn.addEventListener("click", () => {
+      activeSessionProviders = null;
+      startChatWithProviders(settings.defaultProviders.slice());
     });
-    queueRefresh(800);
-    const menu = document.getElementById("header-menu");
-    if (menu) menu.open = false;
-  });
+  }
+
+  const openManageTemplatesBtn = document.getElementById("open-manage-templates");
+  const openTemplates = () => {
+    templatesModal?.classList.remove("is-hidden");
+    const newChatMenu = document.getElementById("new-chat-menu");
+    if (newChatMenu) newChatMenu.open = false;
+    rebuildTemplateProviderToggles();
+    renderTemplatesList();
+  };
+  const closeTemplates = () => {
+    templatesModal?.classList.add("is-hidden");
+  };
+
+  if (openManageTemplatesBtn) {
+    openManageTemplatesBtn.addEventListener("click", openTemplates);
+  }
+  if (closeTemplatesButton) {
+    closeTemplatesButton.addEventListener("click", closeTemplates);
+  }
+  if (templatesBackdrop) {
+    templatesBackdrop.addEventListener("click", closeTemplates);
+  }
+
+  const createTemplateBtn = document.getElementById("create-template-btn");
+  const newTemplateNameInput = document.getElementById("new-template-name");
+  if (createTemplateBtn && newTemplateNameInput) {
+    createTemplateBtn.addEventListener("click", async () => {
+      const name = newTemplateNameInput.value.trim();
+      if (!name) {
+        alert("Please enter a template name.");
+        return;
+      }
+
+      const togglesContainer = document.getElementById("template-provider-toggles");
+      const checkedInputs = Array.from(togglesContainer.querySelectorAll("input[type='checkbox']:checked"));
+      const selectedProviders = checkedInputs.map(input => input.value);
+
+      if (selectedProviders.length === 0) {
+        alert("Please select at least one provider for the template.");
+        return;
+      }
+
+      const newTemplate = {
+        id: "template_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9),
+        name,
+        providers: selectedProviders
+      };
+
+      chatTemplates = [...chatTemplates, newTemplate];
+      await chrome.storage.local.set({ chatTemplates });
+      
+      newTemplateNameInput.value = "";
+      togglesContainer.querySelectorAll("input[type='checkbox']").forEach(cb => cb.checked = false);
+      
+      renderTemplatesList();
+    });
+  }
 
   if (openLlmsButton) {
     openLlmsButton.addEventListener("click", () => {
@@ -2386,6 +2567,7 @@ async function init() {
         savePrefs();
       }
 
+      activeSessionProviders = null;
       chrome.storage.local.set({ activeConversationId: conversationId }).then(async () => {
         await refreshConversations();
         if (action === "open") {
@@ -2401,6 +2583,8 @@ async function init() {
   });
 
   promptField.addEventListener("change", savePrefs);
+
+  renderTemplatesList();
 }
 
 init();
