@@ -254,29 +254,73 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type !== "broadcast") return;
 
-  const adapter = getAdapter();
-  const input = findInput(adapter);
+  chrome.storage.local.get(["customProviders"], (data) => {
+    const customProviders = data.customProviders || [];
+    let adapter = getAdapter();
 
-  if (!input) {
-    sendResponse({ ok: false, error: "Input not found" });
-    return;
-  }
+    if (!adapter) {
+      const matchedCustom = customProviders.find((p) => {
+        try {
+          const urlObj = new URL(p.url);
+          const host = urlObj.hostname.toLowerCase();
+          const parts = host.split('.');
+          const mainDomain = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+          return window.location.host.toLowerCase().includes(mainDomain.toLowerCase());
+        } catch (e) {
+          return false;
+        }
+      });
 
-  const mode = message.mode || "paste";
-  const prompt = message.prompt || "";
-  const expected = normalizeText(prompt);
+      if (matchedCustom) {
+        adapter = {
+          id: matchedCustom.id,
+          inputSelectors: [
+            "textarea",
+            "div[contenteditable='true'][role='textbox']",
+            "div[contenteditable='true']",
+            "input[type='text']"
+          ],
+          sendSelectors: [
+            "button[type='submit']",
+            "button[aria-label*='Send']",
+            "button[aria-label*='Submit']",
+            "button[class*='send']",
+            "button[class*='submit']"
+          ]
+        };
+      }
+    }
 
-  if (mode === "paste") {
-    setInputValue(input, prompt);
-    waitForInputMatch(input, expected).then((matched) => {
-      sendResponse(matched ? { ok: true } : { ok: false, error: "Input mismatch" });
-    });
-    return true;
-  }
+    if (!adapter) {
+      sendResponse({ ok: false, error: "Adapter not found" });
+      return;
+    }
 
-  if (mode === "submit" || mode === "send") {
-    triggerSend(adapter, input);
-    sendResponse({ ok: true });
-    return;
-  }
+    const input = findInput(adapter);
+
+    if (!input) {
+      sendResponse({ ok: false, error: "Input not found" });
+      return;
+    }
+
+    const mode = message.mode || "paste";
+    const prompt = message.prompt || "";
+    const expected = normalizeText(prompt);
+
+    if (mode === "paste") {
+      setInputValue(input, prompt);
+      waitForInputMatch(input, expected).then((matched) => {
+        sendResponse(matched ? { ok: true } : { ok: false, error: "Input mismatch" });
+      });
+      return;
+    }
+
+    if (mode === "submit" || mode === "send") {
+      triggerSend(adapter, input);
+      sendResponse({ ok: true });
+      return;
+    }
+  });
+
+  return true; // Keep message channel open for async response
 });

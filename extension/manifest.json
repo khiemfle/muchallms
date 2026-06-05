@@ -26,25 +26,58 @@
     "windows",
     "storage",
     "system.display",
-    "contextMenus"
+    "contextMenus",
+    "scripting"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
     "https://claude.ai/*",
     "https://gemini.google.com/*",
     "https://grok.com/*",
+    "https://x.com/i/grok*",
     "https://perplexity.ai/*",
-    "https://www.perplexity.ai/*"
+    "https://www.perplexity.ai/*",
+    "https://chat.deepseek.com/*",
+    "https://deepseek.com/*",
+    "https://poe.com/*",
+    "https://www.poe.com/*",
+    "https://huggingface.co/chat*",
+    "https://openrouter.ai/*",
+    "https://www.openrouter.ai/*",
+    "https://chat.mistral.ai/*",
+    "https://copilot.microsoft.com/*",
+    "https://www.bing.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "content_scripts": [
     {
       "matches": [
         "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
         "https://claude.ai/*",
         "https://gemini.google.com/*",
         "https://grok.com/*",
+        "https://x.com/i/grok*",
         "https://perplexity.ai/*",
-        "https://www.perplexity.ai/*"
+        "https://www.perplexity.ai/*",
+        "https://chat.deepseek.com/*",
+        "https://deepseek.com/*",
+        "https://poe.com/*",
+        "https://www.poe.com/*",
+        "https://huggingface.co/chat*",
+        "https://openrouter.ai/*",
+        "https://www.openrouter.ai/*",
+        "https://chat.mistral.ai/*",
+        "https://copilot.microsoft.com/*",
+        "https://www.bing.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
       ],
       "js": [
         "src/content.js"

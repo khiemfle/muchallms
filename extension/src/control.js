@@ -14,6 +14,37 @@ const PROVIDER_HOME_URLS = {
   perplexity: "https://www.perplexity.ai/"
 };
 
+let allProviders = [...PROVIDERS];
+let cachedCustomProviders = [];
+
+function updateAllProvidersList(customProviders) {
+  cachedCustomProviders = customProviders || [];
+  allProviders = [...PROVIDERS];
+  cachedCustomProviders.forEach((p) => {
+    if (!allProviders.some(x => x.id === p.id)) {
+      allProviders.push({ id: p.id, name: p.name });
+    }
+  });
+}
+
+function getProviderDefaultUrl(providerId) {
+  return PROVIDER_HOME_URLS[providerId] || (cachedCustomProviders.find(p => p.id === providerId)?.url || "");
+}
+
+function extractMainDomain(urlString) {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname;
+    const parts = hostname.split('.');
+    const subdomainsToIgnore = new Set(['www', 'chat', 'app', 'play', 'beta', 'dev', 'mail', 'docs']);
+    const filteredParts = parts.filter(p => !subdomainsToIgnore.has(p.toLowerCase()));
+    const mainPart = filteredParts.length >= 2 ? filteredParts[0] : parts[0];
+    return mainPart.charAt(0).toUpperCase() + mainPart.slice(1);
+  } catch (e) {
+    return "";
+  }
+}
+
 const STORAGE_KEYS = [
   "providerPrefs",
   "lastPrompt",
@@ -108,12 +139,12 @@ function normalizeSettings(value) {
   if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS };
   const historyLimit = Number(value.historyLimit);
   const defaultProviders = Array.isArray(value.defaultProviders)
-    ? value.defaultProviders.filter((id) => PROVIDERS.some((provider) => provider.id === id))
+    ? value.defaultProviders.filter((id) => allProviders.some((provider) => provider.id === id))
     : DEFAULT_SETTINGS.defaultProviders;
   const theme = VALID_THEMES.includes(value.theme) ? value.theme : DEFAULT_SETTINGS.theme;
   const providerUrls = {};
   if (value.providerUrls && typeof value.providerUrls === "object") {
-    PROVIDERS.forEach((provider) => {
+    allProviders.forEach((provider) => {
       const url = value.providerUrls[provider.id];
       if (typeof url === "string" && url.trim()) {
         providerUrls[provider.id] = url.trim();
@@ -134,7 +165,7 @@ function escapeAttr(str) {
 
 function getProviderInitUrl(providerId) {
   const custom = settings.providerUrls?.[providerId];
-  return (custom && custom.trim()) ? custom.trim() : (PROVIDER_HOME_URLS[providerId] || "");
+  return (custom && custom.trim()) ? custom.trim() : (getProviderDefaultUrl(providerId) || "");
 }
 
 function getProviderInitUrls(providerIds) {
@@ -158,7 +189,7 @@ function applyTheme(theme) {
 
 function buildProviderPrefs(defaultProviders) {
   const prefs = {};
-  PROVIDERS.forEach((provider) => {
+  allProviders.forEach((provider) => {
     prefs[provider.id] = defaultProviders.includes(provider.id);
   });
   return prefs;
@@ -167,7 +198,7 @@ function buildProviderPrefs(defaultProviders) {
 function renderStatus(providerStatus) {
   if (!statusList) return;
   statusList.innerHTML = "";
-  PROVIDERS.forEach((provider) => {
+  allProviders.forEach((provider) => {
     const isOn = Boolean(providerStatus[provider.id]);
     const item = document.createElement("li");
     item.className = `status__item ${isOn ? "status__item--on" : ""}`;
@@ -232,7 +263,7 @@ function getSelectedProvidersWithFallback() {
 
 function getOrderedProviders(providerIds) {
   const unique = Array.from(new Set((providerIds || []).filter(Boolean)));
-  const ordered = PROVIDERS.map((provider) => provider.id).filter((id) => unique.includes(id));
+  const ordered = allProviders.map((provider) => provider.id).filter((id) => unique.includes(id));
   unique.forEach((id) => {
     if (!ordered.includes(id)) {
       ordered.push(id);
@@ -291,7 +322,7 @@ function getOpenTabsSignature(tabs) {
 function updateSendButtonState(openTabs) {
   if (!sendButton) return;
   const disabled = getActiveConversationDisabledProviders();
-  const enabledProviders = (settings.defaultProviders || PROVIDERS.map(p => p.id))
+  const enabledProviders = (settings.defaultProviders || allProviders.map(p => p.id))
     .filter((id) => !disabled.includes(id));
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
@@ -305,7 +336,7 @@ function updateSendButtonState(openTabs) {
 }
 
 function renderLlmMenuDropdown(openTabs) {
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
   const chatDisabled = getActiveConversationDisabledProviders();
   const frontProviderIds = (openTabs || [])
     .filter(tab => tab.windowState !== "minimized")
@@ -334,7 +365,7 @@ function renderLlmMenuDropdown(openTabs) {
     const manualUrls = activeConv?.manualUrlsByProvider || {};
 
     defaultProviders.forEach((providerId) => {
-      const provider = PROVIDERS.find(p => p.id === providerId);
+      const provider = allProviders.find(p => p.id === providerId);
       if (!provider) return;
 
       const isDisabledForChat = chatDisabled.includes(providerId);
@@ -364,7 +395,7 @@ function renderLlmMenuDropdown(openTabs) {
                   data-action="edit-chat-url-menu" data-provider-id="${providerId}"
                   data-provider-name="${escapeAttr(provider.name)}"
                   data-current-url="${escapeAttr(manualUrls[providerId] || liveUrl)}"
-                  data-default-url="${escapeAttr(PROVIDER_HOME_URLS[providerId] || "")}"
+                  data-default-url="${escapeAttr(getProviderDefaultUrl(providerId))}"
                   title="${hasManualUrl ? "Edit URL" : "Set URL"}">
             URL${hasManualUrl ? " ✓" : ""}
           </button>
@@ -425,7 +456,7 @@ async function pollLlmStatus() {
       renderLlmStatusInDetail(openTabs);
       const actionButton = llmStatusContainer.querySelector(".llm-status-action");
       if (actionButton) {
-        const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+        const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
         const frontProviderIds = openTabs
           .filter(tab => tab.windowState !== "minimized")
           .map(tab => tab.providerId)
@@ -483,7 +514,7 @@ function truncateText(text, maxLength) {
 }
 
 function getProviderName(providerId) {
-  const provider = PROVIDERS.find((entry) => entry.id === providerId);
+  const provider = allProviders.find((entry) => entry.id === providerId);
   return provider ? provider.name : providerId;
 }
 
@@ -717,14 +748,14 @@ function renderLlmStatusInDetail(openTabs) {
   if (!llmStatusList) return;
   llmStatusList.innerHTML = "";
 
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
   const activeConv = getActiveConversation();
   const chatDisabled = activeConv?.disabledProviders || [];
   const manualUrls = activeConv?.manualUrlsByProvider || {};
   const hasActiveConv = Boolean(activeConversationId);
 
   defaultProviders.forEach((providerId) => {
-    const provider = PROVIDERS.find(p => p.id === providerId);
+    const provider = allProviders.find(p => p.id === providerId);
     if (!provider) return;
 
     const providerTabs = openTabs.filter(tab => tab.providerId === providerId);
@@ -767,7 +798,7 @@ function renderLlmStatusInDetail(openTabs) {
     const urlHint = displayUrl
       ? `<span class="status__url" title="${displayUrl}">${truncateText(displayUrl, 40)}</span>`
       : "";
-    const defaultUrl = PROVIDER_HOME_URLS[providerId] || "";
+    const defaultUrl = getProviderDefaultUrl(providerId);
 
     const item = document.createElement("li");
     item.className = `status__item ${statusClass}`;
@@ -802,7 +833,7 @@ function renderConversationDetail(conversation, openTabs = []) {
   const frontTabs = openTabs.filter(tab => tab.windowState !== "minimized");
   const frontProviderIds = frontTabs.map(tab => tab.providerId).filter(Boolean);
   const hasOpenTabs = frontTabs.length > 0;
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map(p => p.id);
+  const defaultProviders = settings.defaultProviders || allProviders.map(p => p.id);
   const allLlmsOpen = defaultProviders.every(id => frontProviderIds.includes(id));
 
   if (!conversation) {
@@ -1069,7 +1100,7 @@ function detectPendingUrlChanges(openTabs) {
     pendingUrlChanges = {};
     return;
   }
-  const defaultProviders = settings.defaultProviders || PROVIDERS.map((p) => p.id);
+  const defaultProviders = settings.defaultProviders || allProviders.map((p) => p.id);
   defaultProviders.forEach((providerId) => {
     const storedUrl = getActiveUrlForProvider(conv, providerId);
     if (!storedUrl) {
@@ -1480,7 +1511,7 @@ function collectConversationUrlsWithFallback(conversation, providerIds) {
   const explicitProviders = Array.isArray(providerIds) && providerIds.length ? providerIds : null;
   const selectedProviders = explicitProviders
     ? explicitProviders
-    : PROVIDERS.map((provider) => provider.id);
+    : allProviders.map((provider) => provider.id);
   const fallbackProviders = explicitProviders
     ? explicitProviders
     : settings.defaultProviders.slice();
@@ -1565,8 +1596,139 @@ async function importData(file) {
   reader.readAsText(file);
 }
 
+function renderCustomProviders() {
+  const listContainer = document.getElementById("custom-providers-list");
+  if (!listContainer) return;
+  listContainer.innerHTML = "";
+  
+  cachedCustomProviders.forEach((provider) => {
+    const item = document.createElement("li");
+    item.className = "custom-provider-item";
+    
+    const info = document.createElement("div");
+    info.className = "custom-provider-item__info";
+    
+    const name = document.createElement("span");
+    name.className = "custom-provider-item__name";
+    name.textContent = provider.name;
+    
+    const url = document.createElement("span");
+    url.className = "custom-provider-item__url";
+    url.textContent = provider.url;
+    
+    info.appendChild(name);
+    info.appendChild(url);
+    
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "custom-provider-item__delete";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.type = "button";
+    deleteBtn.addEventListener("click", async () => {
+      if (confirm(`Are you sure you want to delete "${provider.name}"?`)) {
+        try {
+          const urlObj = new URL(provider.url);
+          const originPattern = `${urlObj.protocol}//${urlObj.hostname}/*`;
+          await chrome.scripting.unregisterContentScripts({ ids: [provider.id] });
+          chrome.permissions.remove({ origins: [originPattern] });
+        } catch (e) {
+          console.error("Failed to clean up permissions/script:", e);
+        }
+
+        const updated = cachedCustomProviders.filter(p => p.id !== provider.id);
+        
+        const defaults = (settings.defaultProviders || []).filter(id => id !== provider.id);
+        const urls = { ...settings.providerUrls };
+        delete urls[provider.id];
+        
+        settings.defaultProviders = defaults;
+        settings.providerUrls = urls;
+        
+        await chrome.storage.local.set({ 
+          customProviders: updated,
+          settings: settings
+        });
+        
+        updateAllProvidersList(updated);
+        renderCustomProviders();
+        rebuildSettingsProvidersUI();
+        await refreshStatus();
+      }
+    });
+    
+    item.appendChild(info);
+    item.appendChild(deleteBtn);
+    listContainer.appendChild(item);
+  });
+}
+
+function rebuildSettingsProvidersUI() {
+  if (defaultProvidersContainer) {
+    defaultProvidersContainer.innerHTML = "";
+    const defaultPrefs = buildProviderPrefs(settings.defaultProviders);
+    allProviders.forEach((provider) => {
+      const wrapper = document.createElement("label");
+      wrapper.className = "toggle";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = defaultPrefs[provider.id] !== false;
+      input.dataset.providerId = provider.id;
+
+      const text = document.createElement("span");
+      text.textContent = provider.name;
+
+      wrapper.appendChild(text);
+      wrapper.appendChild(input);
+      defaultProvidersContainer.appendChild(wrapper);
+    });
+  }
+
+  const providerInitUrlsContainer = document.getElementById("provider-init-urls");
+  if (providerInitUrlsContainer) {
+    providerInitUrlsContainer.innerHTML = "";
+    allProviders.forEach((provider) => {
+      const defaultUrl = getProviderDefaultUrl(provider.id);
+      const currentUrl = settings.providerUrls?.[provider.id] || "";
+
+      const row = document.createElement("div");
+      row.className = "provider-url-row";
+
+      const label = document.createElement("label");
+      label.className = "provider-url-row__label";
+      label.textContent = provider.name;
+
+      const inputWrapper = document.createElement("div");
+      inputWrapper.className = "provider-url-row__input-wrap";
+
+      const input = document.createElement("input");
+      input.type = "url";
+      input.className = "form__input";
+      input.placeholder = defaultUrl;
+      input.value = currentUrl;
+      input.dataset.providerId = provider.id;
+      input.title = currentUrl ? `Current: ${currentUrl}` : `Default: ${defaultUrl}`;
+
+      const resetBtn = document.createElement("button");
+      resetBtn.type = "button";
+      resetBtn.className = "provider-url-row__reset";
+      resetBtn.textContent = "Reset";
+      resetBtn.title = `Reset to default: ${defaultUrl}`;
+      resetBtn.addEventListener("click", () => {
+        input.value = "";
+        input.title = `Default: ${defaultUrl}`;
+      });
+
+      inputWrapper.appendChild(input);
+      inputWrapper.appendChild(resetBtn);
+      row.appendChild(label);
+      row.appendChild(inputWrapper);
+      providerInitUrlsContainer.appendChild(row);
+    });
+  }
+}
+
 async function init() {
-  const stored = await chrome.storage.local.get(STORAGE_KEYS);
+  const stored = await chrome.storage.local.get(["customProviders", ...STORAGE_KEYS]);
+  updateAllProvidersList(stored.customProviders || []);
   settings = normalizeSettings(stored.settings);
   
   // Apply theme immediately
@@ -1610,66 +1772,112 @@ async function init() {
     });
   }
   
-  if (defaultProvidersContainer) {
-    defaultProvidersContainer.innerHTML = "";
-    const defaultPrefs = buildProviderPrefs(settings.defaultProviders);
-    PROVIDERS.forEach((provider) => {
-      const wrapper = document.createElement("label");
-      wrapper.className = "toggle";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = defaultPrefs[provider.id] !== false;
-      input.dataset.providerId = provider.id;
+  renderCustomProviders();
+  rebuildSettingsProvidersUI();
 
-      const text = document.createElement("span");
-      text.textContent = provider.name;
+  const addBtn = document.getElementById("add-provider-btn");
+  const newUrlInput = document.getElementById("new-provider-url");
+  if (addBtn && newUrlInput) {
+    addBtn.addEventListener("click", async () => {
+      const urlValue = newUrlInput.value.trim();
+      if (!urlValue) {
+        alert("Please enter a valid provider URL.");
+        return;
+      }
+      let urlObj;
+      try {
+        urlObj = new URL(urlValue);
+      } catch (e) {
+        alert("Invalid URL. Make sure it starts with http:// or https://");
+        return;
+      }
+      
+      const name = extractMainDomain(urlValue);
+      if (!name) {
+        alert("Could not extract a valid provider name from domain.");
+        return;
+      }
+      
+      let newId = name.toLowerCase();
+      let suffix = 1;
+      const originalId = newId;
+      while (
+        PROVIDERS.some(p => p.id === newId) || 
+        cachedCustomProviders.some(p => p.id === newId)
+      ) {
+        newId = `${originalId}-${suffix}`;
+        suffix++;
+      }
 
-      wrapper.appendChild(text);
-      wrapper.appendChild(input);
-      defaultProvidersContainer.appendChild(wrapper);
+      const originPattern = `${urlObj.protocol}//${urlObj.hostname}/*`;
+
+      chrome.permissions.request({
+        origins: [originPattern]
+      }, async (granted) => {
+        if (!granted) {
+          alert("Permission to access the URL is required to add this provider.");
+          return;
+        }
+
+        try {
+          await chrome.scripting.registerContentScripts([{
+            id: newId,
+            matches: [originPattern],
+            js: ["src/content.js"],
+            runAt: "document_idle"
+          }]);
+        } catch (err) {
+          console.error("Failed to register dynamic script:", err);
+        }
+
+        const newProvider = {
+          id: newId,
+          name: name,
+          url: urlValue
+        };
+        
+        const updated = [...cachedCustomProviders, newProvider];
+        const defaults = [...(settings.defaultProviders || [])];
+        if (!defaults.includes(newId)) {
+          defaults.push(newId);
+        }
+        settings.defaultProviders = defaults;
+        
+        await chrome.storage.local.set({
+          customProviders: updated,
+          settings: settings
+        });
+        
+        updateAllProvidersList(updated);
+        newUrlInput.value = "";
+        renderCustomProviders();
+        rebuildSettingsProvidersUI();
+        await refreshStatus();
+      });
     });
   }
 
-  const providerInitUrlsContainer = document.getElementById("provider-init-urls");
-  if (providerInitUrlsContainer) {
-    providerInitUrlsContainer.innerHTML = "";
-    PROVIDERS.forEach((provider) => {
-      const defaultUrl = PROVIDER_HOME_URLS[provider.id] || "";
-      const currentUrl = settings.providerUrls?.[provider.id] || "";
-
-      const row = document.createElement("div");
-      row.className = "provider-url-row";
-
-      const label = document.createElement("label");
-      label.className = "provider-url-row__label";
-      label.textContent = provider.name;
-
-      const inputWrapper = document.createElement("div");
-      inputWrapper.className = "provider-url-row__input-wrap";
-
-      const input = document.createElement("input");
-      input.type = "url";
-      input.className = "form__input";
-      input.placeholder = defaultUrl;
-      input.value = currentUrl;
-      input.dataset.providerId = provider.id;
-      input.title = currentUrl ? `Current: ${currentUrl}` : `Default: ${defaultUrl}`;
-
-      const resetBtn = document.createElement("button");
-      resetBtn.type = "button";
-      resetBtn.className = "provider-url-row__reset";
-      resetBtn.textContent = "Reset";
-      resetBtn.title = `Reset to default: ${defaultUrl}`;
-      resetBtn.addEventListener("click", () => {
-        input.value = "";
-        input.title = `Default: ${defaultUrl}`;
+  const reloadBtn = document.getElementById("reload-extension");
+  if (reloadBtn) {
+    reloadBtn.addEventListener("click", () => {
+      const menu = document.getElementById("header-menu");
+      if (menu) menu.open = false;
+      chrome.windows.getCurrent(async (win) => {
+        const bounds = {
+          left: win.left,
+          top: win.top,
+          width: win.width,
+          height: win.height
+        };
+        await chrome.storage.local.set({
+          reopenControllerAfterReload: true,
+          reopenControllerBounds: bounds
+        });
+        
+        chrome.runtime.sendMessage({ type: "close_all" }, () => {
+          chrome.runtime.reload();
+        });
       });
-
-      inputWrapper.appendChild(input);
-      inputWrapper.appendChild(resetBtn);
-      row.appendChild(label);
-      row.appendChild(inputWrapper);
-      providerInitUrlsContainer.appendChild(row);
     });
   }
 
@@ -1762,6 +1970,7 @@ async function init() {
       });
 
       const providerUrls = {};
+      const providerInitUrlsContainer = document.getElementById("provider-init-urls");
       providerInitUrlsContainer?.querySelectorAll("input[data-provider-id]").forEach((input) => {
         const url = input.value.trim();
         if (url) providerUrls[input.dataset.providerId] = url;
