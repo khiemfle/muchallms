@@ -94,6 +94,16 @@ describe('ProviderRegistry', () => {
     expect(matches[0].toString()).toBe('/.*/');
   });
 
+  test('should merge provider IDs into an existing chat without duplicates or unknown providers', () => {
+    const merged = ProviderRegistry.mergeProviderIds(
+      ['chatgpt', 'claude', 'missing-provider'],
+      ['claude', 'deepseek', 'deepseek', 'unknown-provider'],
+      ['chatgpt', 'claude', 'deepseek']
+    );
+
+    expect(merged).toEqual(['chatgpt', 'claude', 'deepseek']);
+  });
+
   test('loads in a browser-like extension context without CommonJS module globals', () => {
     const context = { globalThis: {} };
     context.globalThis = context;
@@ -101,6 +111,7 @@ describe('ProviderRegistry', () => {
     expect(() => vm.runInNewContext(providerSource, context)).not.toThrow();
     expect(context.ProviderRegistry).toBeDefined();
     expect(context.providerRegistry.findForUrl('https://chatgpt.com/')).toMatchObject({ id: 'chatgpt' });
+    expect(context.ProviderRegistry.mergeProviderIds(['chatgpt'], ['claude'])).toEqual(['chatgpt', 'claude']);
   });
 
   test('can be injected repeatedly into the same extension context', () => {

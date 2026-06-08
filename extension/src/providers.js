@@ -194,6 +194,22 @@
     static mergeCustomProviders(customProviders = []) {
       return new ProviderRegistry().getAll(customProviders);
     }
+
+    static mergeProviderIds(currentProviderIds = [], providerIdsToAdd = [], knownProviderIds = []) {
+      const additions = Array.isArray(providerIdsToAdd) ? providerIdsToAdd : [providerIdsToAdd];
+      const known = Array.isArray(knownProviderIds) && knownProviderIds.length
+        ? new Set(knownProviderIds)
+        : null;
+      const merged = [];
+      const appendValid = (providerId) => {
+        if (!providerId || (known && !known.has(providerId)) || merged.includes(providerId)) return;
+        merged.push(providerId);
+      };
+
+      (Array.isArray(currentProviderIds) ? currentProviderIds : []).forEach(appendValid);
+      additions.forEach(appendValid);
+      return merged;
+    }
   }
 
   const providerRegistry = new ProviderRegistry();

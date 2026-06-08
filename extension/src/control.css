@@ -732,6 +732,20 @@ textarea {
 .llm-menu-item--closed .llm-menu-dot {
   background: #d9534f;
 }
+
+.llm-menu-item--addable .llm-menu-dot {
+  background: var(--accent);
+}
+
+.llm-menu-section-title {
+  list-style: none;
+  padding: 6px 4px 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
 .llm-menu-item-state {
   font-size: 0.7rem;
   color: var(--muted);

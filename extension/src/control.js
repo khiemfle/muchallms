@@ -448,6 +448,43 @@ function renderLlmMenuDropdown(openTabs) {
       if (pending) item.classList.add("llm-menu-item--url-changed");
       llmMenuStatusList.appendChild(item);
     });
+
+    if (activeConversationId) {
+      const availableProviderIds = new Set(defaultProviders);
+      const providersToAdd = allProviders.filter((provider) => !availableProviderIds.has(provider.id));
+      if (providersToAdd.length) {
+        const separator = document.createElement("li");
+        separator.className = "llm-menu-section-title";
+        separator.textContent = "Add to this chat";
+        llmMenuStatusList.appendChild(separator);
+
+        providersToAdd.forEach((provider) => {
+          const item = document.createElement("li");
+          item.className = "llm-menu-item llm-menu-item--addable";
+          const initUrl = getProviderInitUrl(provider.id);
+          const urlSubtitle = initUrl
+            ? `<span class="llm-menu-item-url" title="${escapeAttr(initUrl)}">${truncateText(initUrl, 35)}</span>`
+            : "";
+          item.innerHTML = `
+            <span class="llm-menu-item-label">
+              <span class="llm-menu-dot"></span>
+              <span class="llm-menu-item-name">
+                ${escapeAttr(provider.name)}
+                ${urlSubtitle}
+              </span>
+            </span>
+            <span class="llm-menu-item-right">
+              <button class="llm-menu-chip llm-menu-chip--set"
+                      data-action="add-chat-provider" data-provider-id="${provider.id}"
+                      title="Add ${escapeAttr(provider.name)} to this chat">
+                Add
+              </button>
+            </span>
+          `;
+          llmMenuStatusList.appendChild(item);
+        });
+      }
+    }
   }
 }
 
@@ -1101,6 +1138,43 @@ async function toggleConversationProviderDisabled(providerId, disabled) {
       : current.filter((id) => id !== providerId);
     return { disabledProviders: next };
   });
+}
+
+async function addProvidersToActiveConversation(providerIds) {
+  if (!activeConversationId) return false;
+  const additions = Array.isArray(providerIds) ? providerIds : [providerIds];
+  const knownProviderIds = allProviders.map((provider) => provider.id);
+  const validAdditions = additions.filter((id) => knownProviderIds.includes(id));
+  if (!validAdditions.length) return false;
+
+  let changed = false;
+  await updateActiveConversation((conv) => {
+    const providerSource = conv.selectedProviders && conv.selectedProviders.length
+      ? conv.selectedProviders
+      : Object.keys(conv.linksByProvider || {});
+    const selectedProviders = getOrderedProviders(
+      ProviderRegistry.mergeProviderIds(providerSource, validAdditions, knownProviderIds)
+    );
+    changed = selectedProviders.length !== providerSource.length;
+
+    const disabledProviders = (conv.disabledProviders || [])
+      .filter((id) => !validAdditions.includes(id));
+    const manualUrlsByProvider = { ...(conv.manualUrlsByProvider || {}) };
+    validAdditions.forEach((providerId) => {
+      if (manualUrlsByProvider[providerId]) return;
+      const existingLinks = normalizeLinks(conv.linksByProvider?.[providerId]);
+      if (existingLinks.length) return;
+      const initUrl = getProviderInitUrl(providerId);
+      if (initUrl) manualUrlsByProvider[providerId] = initUrl;
+    });
+
+    return {
+      selectedProviders,
+      disabledProviders,
+      manualUrlsByProvider
+    };
+  });
+  return changed;
 }
 
 // In-memory map of detected URL changes not yet acted on by the user
@@ -2068,6 +2142,7 @@ async function init() {
         });
         
         updateAllProvidersList(updated);
+        await addProvidersToActiveConversation(newId);
         newUrlInput.value = "";
         renderCustomProviders();
         rebuildSettingsProvidersUI();
@@ -2346,6 +2421,14 @@ async function init() {
         const conv = getActiveConversation();
         const isDisabled = (conv?.disabledProviders || []).includes(providerId);
         await toggleConversationProviderDisabled(providerId, !isDisabled);
+        return;
+      }
+
+      if (action === "add-chat-provider") {
+        await addProvidersToActiveConversation(providerId);
+        const tabsResponse = await chrome.runtime.sendMessage({ type: "list_tabs" }).catch(() => null);
+        const openTabs = (tabsResponse && tabsResponse.ok && tabsResponse.tabs) ? tabsResponse.tabs : [];
+        renderLlmMenuDropdown(openTabs);
         return;
       }
 
