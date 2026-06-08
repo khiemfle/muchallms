@@ -30,7 +30,6 @@ function isVisible(element) {
     return true;
   }
   
-  // For background tabs / slotted elements / fixed positioning where layout bounds might be 0:
   return !isStyleHidden(element);
 }
 
@@ -85,7 +84,6 @@ function findSendButton(adapter) {
     if (element) return element;
   }
   
-  // Generic fallback: find any visible button or element with role="button" containing send-like text
   const genericCandidates = querySelectorAllShadow("button, [role='button'], input[type='submit'], input[type='button']");
   const sendWords = ["send", "submit", "post", "comment", "reply", "ask", "go", "chat"];
   
@@ -132,9 +130,7 @@ function dispatchInputEvent(element, value) {
       });
       element.dispatchEvent(inputEvent);
       return;
-    } catch (error) {
-      // Some browsers block InputEvent in content scripts.
-    }
+    } catch (error) {}
   }
 
   element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
@@ -163,16 +159,13 @@ function setInputValue(element, value) {
     setNativeValue(element, value);
     dispatchInputEvent(element, value);
 
-    // Also update custom element host if this is inside a Shadow Root
     const rootNode = element.getRootNode();
     if (rootNode && rootNode.host) {
       try {
         setNativeValue(rootNode.host, value);
         rootNode.host.setAttribute("value", value);
         dispatchInputEvent(rootNode.host, value);
-      } catch (e) {
-        // Safe fallback if host doesn't accept setting value directly
-      }
+      } catch (e) {}
     }
     return;
   }
@@ -275,48 +268,19 @@ function triggerSend(adapter, element) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "get_location") {
-    sendResponse({ ok: true, url: window.location.href });
-    return;
-  }
-
-  if (message.type !== "broadcast") return;
-
-  chrome.storage.local.get(["customProviders"], (data) => {
-    const customProviders = data.customProviders || [];
-    const adapter = providerRegistry.findForUrl(window.location.href, customProviders);
-
-    if (!adapter) {
-      sendResponse({ ok: false, error: "Adapter not found" });
-      return;
-    }
-
-    const input = findInput(adapter);
-
-    if (!input) {
-      sendResponse({ ok: false, error: "Input not found" });
-      return;
-    }
-
-    const mode = message.mode || "paste";
-    const prompt = message.prompt || "";
-    const expected = normalizeText(prompt);
-
-    if (mode === "paste") {
-      setInputValue(input, prompt);
-      waitForInputMatch(input, expected).then((matched) => {
-        sendResponse(matched ? { ok: true } : { ok: false, error: "Input mismatch" });
-      });
-      return;
-    }
-
-    if (mode === "submit" || mode === "send") {
-      triggerSend(adapter, input);
-      sendResponse({ ok: true });
-      return;
-    }
-  });
-
-  return true; // Keep message channel open for async response
-});
+module.exports = {
+  isStyleHidden,
+  isVisible,
+  isVisible,
+  querySelectorAllShadow,
+  findInput,
+  findSendButton,
+  selectEditableContents,
+  dispatchInputEvent,
+  setNativeValue,
+  setInputValue,
+  readInputValue,
+  normalizeText,
+  waitForInputMatch,
+  triggerSend
+};

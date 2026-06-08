@@ -1,18 +1,6 @@
-const PROVIDERS = [
-  { id: "chatgpt", name: "ChatGPT" },
-  { id: "claude", name: "Claude" },
-  { id: "gemini", name: "Gemini" },
-  { id: "grok", name: "Grok" },
-  { id: "perplexity", name: "Perplexity" }
-];
+const PROVIDERS = providerRegistry.getAll();
 
-const PROVIDER_HOME_URLS = {
-  chatgpt: "https://chatgpt.com/",
-  claude: "https://claude.ai/",
-  gemini: "https://gemini.google.com/app",
-  grok: "https://grok.com/",
-  perplexity: "https://www.perplexity.ai/"
-};
+const PROVIDER_HOME_URLS = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider.url]));
 
 const SUGGESTED_PROVIDERS = [
   { name: "DeepSeek", url: "https://chat.deepseek.com/" },
@@ -40,7 +28,7 @@ function updateAllProvidersList(customProviders) {
 }
 
 function getProviderDefaultUrl(providerId) {
-  return PROVIDER_HOME_URLS[providerId] || (cachedCustomProviders.find(p => p.id === providerId)?.url || "");
+  return providerRegistry.get(providerId)?.url || (cachedCustomProviders.find(p => p.id === providerId)?.url || "");
 }
 
 function extractMainDomain(urlString) {
@@ -2054,7 +2042,7 @@ async function init() {
           await chrome.scripting.registerContentScripts([{
             id: newId,
             matches: [originPattern],
-            js: ["src/content.js"],
+            js: ["src/providers.js", "src/content.js"],
             runAt: "document_idle"
           }]);
         } catch (err) {
@@ -2455,6 +2443,21 @@ async function init() {
   if (openManageTemplatesBtn) {
     openManageTemplatesBtn.addEventListener("click", openTemplates);
   }
+
+  const newChatCustomBtn = document.getElementById("new-chat-custom");
+  if (newChatCustomBtn) {
+    newChatCustomBtn.addEventListener("click", () => {
+      // Open the settings modal and scroll to the provider selection section.
+      openSettings();
+      const providersContainer = document.getElementById("default-providers");
+      if (providersContainer) {
+        providersContainer.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      const newChatMenu = document.getElementById("new-chat-menu");
+      if (newChatMenu) newChatMenu.open = false;
+    });
+  }
+
   if (closeTemplatesButton) {
     closeTemplatesButton.addEventListener("click", closeTemplates);
   }

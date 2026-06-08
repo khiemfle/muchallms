@@ -1,35 +1,5 @@
-const PROVIDERS = [
-  {
-    id: "chatgpt",
-    name: "ChatGPT",
-    matches: [/chatgpt\.com/, /chat\.openai\.com/],
-    url: "https://chatgpt.com/"
-  },
-  {
-    id: "claude",
-    name: "Claude",
-    matches: [/claude\.ai/],
-    url: "https://claude.ai/"
-  },
-  {
-    id: "gemini",
-    name: "Gemini",
-    matches: [/gemini\.google\.com/],
-    url: "https://gemini.google.com/app"
-  },
-  {
-    id: "grok",
-    name: "Grok",
-    matches: [/grok\.com/, /x\.com\/i\/grok/],
-    url: "https://grok.com/"
-  },
-  {
-    id: "perplexity",
-    name: "Perplexity",
-    matches: [/perplexity\.ai/],
-    url: "https://www.perplexity.ai/"
-  }
-];
+// Load provider registry in the MV3 classic service worker context.
+importScripts("providers.js");
 
 let debugEnabled = false;
 let customProviders = [];
@@ -55,34 +25,12 @@ function logDebug(...args) {
 }
 
 function getAllProviders() {
-  const customList = customProviders.map(p => {
-    let matches = [];
-    try {
-      const urlObj = new URL(p.url);
-      const host = urlObj.hostname.toLowerCase();
-      const escapedHost = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const parts = host.split('.');
-      const mainDomain = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-      const escapedMainDomain = mainDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      matches = [new RegExp(escapedHost), new RegExp(escapedMainDomain + '\\..*')];
-    } catch (e) {
-      matches = [/.*/];
-    }
-    return {
-      id: p.id,
-      name: p.name,
-      matches: matches,
-      url: p.url
-    };
-  });
-  return [...PROVIDERS, ...customList];
+  return providerRegistry.getAll(customProviders);
 }
 
 function getProviderForUrl(url) {
   if (!url) return null;
-  return (
-    getAllProviders().find((provider) => provider.matches.some((match) => match.test(url))) || null
-  );
+  return providerRegistry.findForUrl(url, customProviders) || null;
 }
 
 function isControlUrl(url) {
@@ -444,7 +392,7 @@ function sendMessageToTab(tabId, message) {
         try {
           await chrome.scripting.executeScript({
             target: { tabId },
-            files: ["src/content.js"]
+            files: ["src/providers.js", "src/content.js"]
           });
           // Wait a little bit for content.js to initialize
           await delay(150);

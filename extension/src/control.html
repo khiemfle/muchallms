@@ -22,6 +22,7 @@
             </summary>
             <div class="menu__panel" id="new-chat-menu-panel" style="right: 0; min-width: 200px;">
               <button class="menu__item" id="new-chat-default" type="button">Default LLMs</button>
+              <button class="menu__item" id="new-chat-custom" type="button">Custom Selection...</button>
               <div id="new-chat-templates-container">
                 <hr class="menu__separator" style="margin: 4px 0; border: none; border-top: 1px solid var(--border);" />
                 <div class="menu__section-title" style="padding: 4px 8px; font-size: 0.75rem; font-weight: bold; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Templates</div>
@@ -178,7 +179,7 @@
             </div>
 
 
-            <p class="form__label">Default LLM selection</p>
+            <p class="form__label">Default LLM selection <span class="form__helper-inline">(Used for "Default LLMs" new chat)</span></p>
             <div class="toggles" id="default-providers"></div>
 
             <p class="form__label">LLM init URLs <span class="form__helper-inline">(leave blank to use default)</span></p>
@@ -275,6 +276,7 @@
       </div>
     </main>
 
+    <script src="providers.js"></script>
     <script src="control.js"></script>
   </body>
 </html>

@@ -80,6 +80,7 @@
         "http://127.0.0.1/*"
       ],
       "js": [
+        "src/providers.js",
         "src/content.js"
       ],
       "run_at": "document_idle"
