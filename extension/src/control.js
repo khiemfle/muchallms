@@ -2527,20 +2527,6 @@ async function init() {
     openManageTemplatesBtn.addEventListener("click", openTemplates);
   }
 
-  const newChatCustomBtn = document.getElementById("new-chat-custom");
-  if (newChatCustomBtn) {
-    newChatCustomBtn.addEventListener("click", () => {
-      // Open the settings modal and scroll to the provider selection section.
-      openSettings();
-      const providersContainer = document.getElementById("default-providers");
-      if (providersContainer) {
-        providersContainer.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-      const newChatMenu = document.getElementById("new-chat-menu");
-      if (newChatMenu) newChatMenu.open = false;
-    });
-  }
-
   if (closeTemplatesButton) {
     closeTemplatesButton.addEventListener("click", closeTemplates);
   }
